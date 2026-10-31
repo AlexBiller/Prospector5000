@@ -54,6 +54,9 @@ test('default proposal drops instruction-like text from a finding', () => {
 });
 
 test('interpretSession keeps only http(s) URLs and detects completion', () => {
+  const idle = devin.interpretSession({ status: 'running', status_detail: 'waiting_for_user', structured_output: { demo_url: 'https://demo.example', repo_url: 'https://github.com/a/b' } });
+  assert.ok(idle.live, 'idle session that reported both links counts as done');
+  assert.ok(!devin.interpretSession({ status: 'running', status_detail: 'waiting_for_user', structured_output: { demo_url: 'https://demo.example' } }).finished);
   const i = devin.interpretSession({ status: 'exit', structured_output: { demo_url: 'javascript:alert(1)', repo_url: 'https://github.com/a/b' }, acus_consumed: 3.5, url: 'https://app.devin.ai/sessions/x' });
   assert.strictEqual(i.demo_url, null);
   assert.strictEqual(i.live, false);

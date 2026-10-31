@@ -96,7 +96,9 @@ function interpretSession(s) {
   const prUrl = pr ? safeUrl(pr.pr_url || pr.url) : null;
   const demoUrl = safeUrl(so.demo_url);
   const repoUrl = safeUrl(so.repo_url) || repoFromPr(prUrl);
-  const finished = s.status === 'exit' || s.status_detail === 'finished';
+  // Devin often reports its deliverables and then idles (running / waiting_for_user) instead of exiting.
+  const finished = s.status === 'exit' || s.status_detail === 'finished' ||
+    (s.status_detail === 'waiting_for_user' && !!demoUrl && !!repoUrl);
   const failed = s.status === 'error' || (s.status === 'suspended' && FAILED_DETAILS.has(s.status_detail));
   return {
     devin_status: s.status || null,
