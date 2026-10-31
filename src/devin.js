@@ -112,4 +112,10 @@ function interpretSession(s) {
   };
 }
 
-module.exports = { configured, testConnection, createSession, getSession, sendMessage, interpretSession, redact, DevinError, OUTPUT_SCHEMA };
+// A build Devin will not finish on its own: stopped, or idle waiting for a reply.
+const STOPPED_STATUSES = ['suspended', 'error', 'exit'];
+const isWaiting = (a) => a.devin_status === 'running' && a.devin_status_detail === 'waiting_for_user';
+const needsAction = (a) => a.status === 'building' && !!a.devin_session_id &&
+  (STOPPED_STATUSES.includes(a.devin_status) || isWaiting(a));
+
+module.exports = { needsAction, isWaiting, configured, testConnection, createSession, getSession, sendMessage, interpretSession, redact, DevinError, OUTPUT_SCHEMA };

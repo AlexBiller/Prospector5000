@@ -6,6 +6,7 @@ const { TYPE_LABEL } = require('./research/candidates');
 const { DEMO_LABEL, MAX_INTERACTIONS } = require('./brief');
 const { logo, FAVICON } = require('./logo');
 const O = require('./research/opportunity');
+const { needsAction, isWaiting } = require('./devin');
 
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
 
@@ -176,9 +177,11 @@ const QUOTA_DETAILS = new Set(['usage_limit_exceeded', 'out_of_credits', 'out_of
   'org_usage_limit_exceeded', 'user_usage_limit_exceeded', 'total_session_limit_exceeded', 'contract_expired']);
 
 function stoppedActions(a) {
-  if (a.status !== 'building' || !['suspended', 'error', 'exit'].includes(a.devin_status)) return '';
+  if (!needsAction(a)) return '';
   const quota = QUOTA_DETAILS.has(a.devin_status_detail);
-  return html`<div class="stopped"><h3>Build stopped</h3>
+  const waiting = isWaiting(a);
+  return html`<div class="stopped"><h3>${waiting ? 'Devin is waiting for you' : 'Build stopped'}</h3>
+${waiting ? html`<p>The session is idle until it gets a reply. Continue tells it to finish the brief, or open the session to answer it yourself.</p>` : ''}
 ${quota ? html`<p>Your Devin account is out of ACUs or hit a usage limit (${a.devin_status_detail}). Add quota in Devin's billing settings, then continue.</p>` : ''}
 <form method="post" action="/accounts/${a.id}/build/continue"><label class="choice"><input type="checkbox" name="ack" value="yes" required> <span>Continue this session. It can keep spending ACUs up to its cap of ${a.acu_limit}.</span></label>
 <button class="primary">Continue build</button></form>
