@@ -132,6 +132,43 @@ test('prospect PDF model excludes notes, brief and flagged evidence; shows build
   assert.match(pdf.toString('latin1'), /\/Subtype \/Image/);
 });
 
+test('research reports per-source progress, and the account page shows a progress bar', async () => {
+  const config = require('../src/config');
+  const S = require('../src/research/sources');
+  const R = require('../src/research');
+  const saved = { provider: config.research.provider, fns: { ...S } };
+  config.research.provider = 'public';
+  const names = ['gdeltNews', 'hnLaunches', 'companyFeeds', 'jobBoards', 'nvdCves', 'secFilings'];
+  names.forEach((n, i) => { S[n] = async () => { await new Promise((r) => setTimeout(r, 5 * (i + 1))); if (n === 'gdeltNews') throw new Error('rate limited'); return []; }; });
+  const seen = [];
+  try {
+    await R.runResearch({ name: 'Acme', domain: 'acme.com' }, (p) => seen.push(p));
+  } finally {
+    config.research.provider = saved.provider;
+    Object.assign(S, saved.fns);
+  }
+  assert.deepStrictEqual(seen.map((p) => p.done), [0, 1, 2, 3, 4, 5, 6, 6]);
+  assert.ok(seen.every((p) => p.total === 7));
+  assert.match(seen[0].step, /^Searching news, Hacker News launches/);
+  assert.match(seen.at(-1).step, /^Analyzing 0 sources/);
+  const V = require('../src/views');
+  const page = String(V.accountPage({ a: { id: 3, name: 'Acme', query_name: 'Acme', status: 'researching', research_state: 'running' },
+    candidates: [], events: [], research: { available: true, label: 'x' }, devinOn: false, progress: { done: 2, total: 7, step: 'Searching job boards' } }));
+  assert.match(page, /<progress max="7" value="2"/);
+  assert.match(page, /data-research-progress="\/api\/accounts\/3\/research"/);
+  assert.doesNotMatch(page, /refreshes automatically/);
+});
+
+test('build step text and elapsed timer formatting', () => {
+  const D = require('../src/devin');
+  assert.strictEqual(D.stepText('\n## **Running** `npm test`\nmore'), 'Running npm test');
+  assert.strictEqual(D.stepText('x'.repeat(300)).length, 240);
+  const V = require('../src/views');
+  const t0 = Date.parse('2026-10-31T08:00:00Z');
+  assert.strictEqual(V.formatElapsed('2026-10-31T08:00:00Z', t0 + 65000), '1m 05s');
+  assert.strictEqual(V.formatElapsed('2026-10-31T08:00:00Z', t0 + 3723000), '1h 02m 03s');
+});
+
 test('disambiguation: mul labels and query relevance', () => {
   const D = require('../src/research/disambiguate');
   assert.strictEqual(D.textOf({ mul: { value: 'Pinterest' } }), 'Pinterest');

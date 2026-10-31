@@ -103,15 +103,16 @@ app.post('/accounts', wrap(async (req, res) => {
   res.redirect(303, `/accounts/${id}`);
 }));
 
-const researchJobs = new Set();
+// In-process research jobs and their progress (a restart marks running research as failed).
+const researchJobs = new Map();
 async function startResearch(a) {
   if (researchJobs.has(a.id)) return;
-  researchJobs.add(a.id);
+  researchJobs.set(a.id, { done: 0, total: 1, step: 'Starting research' });
   await store.updateAccount(a.id, { research_state: 'running', research_provider: research.providerStatus().name, error: null });
   await store.addEvent(a.id, 'Research started.');
   (async () => {
     try {
-      const out = await research.runResearch(a);
+      const out = await research.runResearch(a, (p) => researchJobs.set(a.id, p));
       await store.replaceFetchedCandidates(a.id, out.candidates);
       const total = (await store.listCandidates(a.id)).length;
       const cur = await store.getAccount(a.id);
@@ -448,9 +449,9 @@ app.get('/accounts/:id', wrap(async (req, res) => {
   a._defaultAcu = config.devin.defaultAcu;
   const page = views.accountPage({
     a, candidates: await store.listCandidates(a.id), events: await store.listEvents(a.id),
-    research: research.providerStatus(), devinOn: devin.configured(),
+    research: research.providerStatus(), devinOn: devin.configured(), progress: researchJobs.get(a.id), step: buildSteps.get(a.id),
   });
-  send(res, page, { title: a.name || a.query_name, refresh: a.research_state === 'running' ? 5 : a.status === 'building' ? 30 : null });
+  send(res, page, { title: a.name || a.query_name });
 }));
 
 let connCache = null;
@@ -474,6 +475,38 @@ app.get('/api/accounts/:id', wrap(async (req, res) => {
   const a = await store.getAccount(Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'not found' });
   res.json({ ...publicAccount(a), candidates: await store.listCandidates(a.id) });
+}));
+app.get('/api/accounts/:id/research', wrap(async (req, res) => {
+  const a = await store.getAccount(Number(req.params.id));
+  if (!a) return res.status(404).json({ error: 'not found' });
+  const p = a.research_state === 'running' ? researchJobs.get(a.id) : null;
+  res.json({ state: a.research_state || null, ...(p ? { done: p.done, total: p.total, step: p.step } : {}) });
+}));
+// Latest Devin message per building account, refreshed at most every 15 seconds.
+const buildSteps = new Map();
+async function currentStep(a) {
+  if (a.status !== 'building' || !a.devin_session_id || !devin.configured()) return null;
+  const cached = buildSteps.get(a.id);
+  if (cached && Date.now() - cached.fetched < 15000) return cached;
+  try {
+    const m = await devin.latestDevinMessage(a.devin_session_id);
+    buildSteps.set(a.id, { ...(m || {}), fetched: Date.now() });
+  } catch { /* keep the last known step */ }
+  return buildSteps.get(a.id) || null;
+}
+app.get('/api/accounts/:id/build', wrap(async (req, res) => {
+  let a = await store.getAccount(Number(req.params.id));
+  if (!a) return res.status(404).json({ error: 'not found' });
+  if (a.status === 'building' && (!a.last_polled_at || Date.now() - new Date(a.last_polled_at).getTime() > 15000)) {
+    await pollAccount(a);
+    a = await store.getAccount(a.id);
+  }
+  const step = await currentStep(a);
+  res.json({
+    status: a.status, devin_status: a.devin_status || null, devin_status_detail: a.devin_status_detail || null,
+    started_at: a.build_started_at || null, acus_consumed: a.acus_consumed ?? null,
+    step: (step && step.text) || null, step_at: (step && step.at) || null,
+  });
 }));
 app.get('/api/status', wrap(async (req, res) => {
   const c = await connection(false);

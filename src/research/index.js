@@ -13,13 +13,22 @@ function providerStatus() {
   return { available: false, name: null, label: 'Not configured' };
 }
 
-async function gather(account, log) {
+// Progress is reported as steps: one per source, plus a final analysis step.
+async function gather(account, log, progress = () => {}) {
   const status = providerStatus();
   const tasks = status.name === 'tavily'
-    ? [tavilySources, S.jobBoards, S.nvdCves, S.secFilings]
-    : [S.gdeltNews, S.hnLaunches, S.companyFeeds, S.jobBoards, S.nvdCves, S.secFilings];
-  const settled = await Promise.allSettled(tasks.map((t) => t(account, log)));
-  settled.forEach((r, i) => { if (r.status === 'rejected') log(`${tasks[i].name} failed: ${r.reason && r.reason.message}`); });
+    ? [['web search', tavilySources], ['job boards', S.jobBoards], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]]
+    : [['news', S.gdeltNews], ['Hacker News launches', S.hnLaunches], ['company blog and newsroom', S.companyFeeds],
+      ['job boards', S.jobBoards], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]];
+  const total = tasks.length + 1;
+  const pending = tasks.map(([label]) => label);
+  const report = () => progress({ done: total - 1 - pending.length, total, step: pending.length ? `Searching ${pending.join(', ')}` : 'Analyzing sources' });
+  report();
+  const settled = await Promise.allSettled(tasks.map(([label, t]) => Promise.resolve().then(() => t(account, log)).finally(() => {
+    pending.splice(pending.indexOf(label), 1);
+    report();
+  })));
+  settled.forEach((r, i) => { if (r.status === 'rejected') log(`${tasks[i][1].name} failed: ${r.reason && r.reason.message}`); });
   const seen = new Set();
   return settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
     .filter((s) => s && s.text && s.url && !seen.has(s.url) && seen.add(s.url))
@@ -51,10 +60,12 @@ async function candidatesFromSources(account, sources, log) {
   return heuristicCandidates(account, sources);
 }
 
-async function runResearch(account) {
+async function runResearch(account, progress = () => {}) {
   const lines = [];
   const log = (m) => lines.push(m);
-  const sources = await gather(account, log);
+  let total = 1;
+  const sources = await gather(account, log, (p) => { total = p.total; progress(p); });
+  progress({ done: total - 1, total, step: `Analyzing ${sources.length} source${sources.length === 1 ? '' : 's'}` });
   const cands = C.rank(await candidatesFromSources(account, sources, log));
   return { candidates: cands, message: C.evidenceMessage(cands), log: lines };
 }

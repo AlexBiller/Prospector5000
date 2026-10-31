@@ -90,7 +90,22 @@ function manualFindingsForm(a) {
 <button>Add findings</button></form></details>`;
 }
 
-function accountPage({ a, candidates, events, research, devinOn, error, flash }) {
+function researchProgress(a, p) {
+  const { done = 0, total = 1, step = 'Researching public sources' } = p || {};
+  return html`<div class="research-progress" data-research-progress="/api/accounts/${a.id}/research">
+<progress max="${total}" value="${done}" aria-label="Research progress"></progress>
+<p class="flash small" data-step>${step}…</p>
+<noscript><p class="small muted">Reload the page to check progress.</p></noscript></div>`;
+}
+
+function formatElapsed(fromIso, now = Date.now()) {
+  const s = Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 1000));
+  if (!Number.isFinite(s)) return '-';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, '0');
+  return h ? `${h}h ${String(m).padStart(2, '0')}m ${sec}s` : `${m}m ${sec}s`;
+}
+
+function accountPage({ a, candidates, events, research, devinOn, error, flash, progress, step }) {
   const cand = candidates.find((c) => c.id === a.approved_candidate_id);
   const sections = [];
   sections.push(html`<section class="card"><div class="title-row"><h1>${a.name || a.query_name}</h1>${statusBadge(a.status)} ${modeBadge(a.mode)}</div>
@@ -112,7 +127,7 @@ ${opts.length ? html`<form method="post" action="/accounts/${a.id}/confirm">${op
     const running = a.research_state === 'running';
     sections.push(html`<section class="card"><h2>2. Research</h2>
 ${research.available ? html`<p class="small muted">Provider: ${research.label}</p>` : html`<p class="warn-box">Automated research is unavailable: no research provider is configured on the server. Add findings manually below; they go through the same review and approval.</p>`}
-${running ? html`<p class="flash">Researching public sources… this page refreshes automatically.</p>` : ''}
+${running ? researchProgress(a, progress) : ''}
 ${a.research_message ? html`<p>${a.research_message}</p>` : ''}
 ${research.available && !running && ['researching', 'awaiting_approval'].includes(a.status) ? html`<form method="post" action="/accounts/${a.id}/research"><button>${candidates.some((c) => c.origin === 'fetched') ? 'Re-run research' : 'Run research'}</button></form>` : ''}
 ${['researching', 'awaiting_approval'].includes(a.status) ? manualFindingsForm(a) : ''}</section>`);
@@ -146,13 +161,16 @@ ${manualLinksForm(a, false)}</section>`);
   }
 
   if (a.devin_session_id) {
-    sections.push(html`<section class="card"><h2>Devin session</h2><dl class="kv">
+    const live = a.status === 'building';
+    sections.push(html`<section class="card"${live ? html` data-build-live="/api/accounts/${a.id}/build"` : ''}><h2>Devin session</h2><dl class="kv">
 <dt>Session</dt><dd>${ext(a.devin_session_url, a.devin_session_id)}</dd>
-<dt>Status</dt><dd>${a.devin_status || 'unknown'}${a.devin_status_detail ? ` (${a.devin_status_detail})` : ''}</dd>
-<dt>ACU cap</dt><dd>${a.acu_limit}</dd><dt>ACUs consumed</dt><dd>${a.acus_consumed != null ? Number(a.acus_consumed).toFixed(2) : '-'}${Number(a.prior_acus) > 0 ? ` (incl. ${Number(a.prior_acus).toFixed(2)} from earlier attempts)` : ''}</dd>
+<dt>Status</dt><dd data-build-status>${a.devin_status || 'unknown'}${a.devin_status_detail ? ` (${a.devin_status_detail})` : ''}</dd>
+${live && a.build_started_at ? html`<dt>Running for</dt><dd><span class="elapsed" data-elapsed-since="${a.build_started_at}">${formatElapsed(a.build_started_at)}</span></dd>` : ''}
+${live ? html`<dt>Current step</dt><dd class="step" data-build-step>${(step && step.text) || 'Waiting for Devin\'s first update…'}</dd>` : ''}
+<dt>ACU cap</dt><dd>${a.acu_limit}</dd><dt>ACUs consumed</dt><dd data-build-acus>${a.acus_consumed != null ? Number(a.acus_consumed).toFixed(2) : '-'}${Number(a.prior_acus) > 0 ? ` (incl. ${Number(a.prior_acus).toFixed(2)} from earlier attempts)` : ''}</dd>
 <dt>Pull request</dt><dd>${ext(a.pr_url)}</dd><dt>Last checked</dt><dd>${a.last_polled_at || '-'}</dd></dl>
 ${stoppedActions(a)}
-${a.status === 'building' ? html`<form method="post" action="/accounts/${a.id}/poll"><button>Check now</button></form>${manualLinksForm(a, true)}` : ''}</section>`);
+${live ? html`<noscript><p class="small muted">Reload the page or click Check now for updates.</p></noscript><form method="post" action="/accounts/${a.id}/poll"><button>Check now</button></form>${manualLinksForm(a, true)}` : ''}</section>`);
   }
 
   if (a.status === 'demo_live') {
@@ -234,4 +252,4 @@ ${devin.connected ? html`<p class="small muted">Approved briefs show "Build with
 
 function errorPage(msg, { backHref = '/', backLabel = 'Back to dashboard' } = {}) { return html`<section class="card"><h1>Something went wrong</h1><p>${msg}</p><p><a href="${backHref}">${backLabel}</a></p></section>`; }
 
-module.exports = { layout, loginPage, dashboard, accountPage, proposePage, buildConfirmPage, settingsPage, errorPage, STATUS };
+module.exports = { formatElapsed, layout, loginPage, dashboard, accountPage, proposePage, buildConfirmPage, settingsPage, errorPage, STATUS };

@@ -26,3 +26,5 @@ details summary{cursor:pointer;font-weight:500;margin:6px 0}.kv{display:grid;gri
 .stopped { margin-top: 1rem; padding: 1rem; border: 1px solid #f0b4b4; border-radius: 10px; background: #fff7f7; }
 .stopped h3 { margin: 0 0 .5rem; }
 .stopped form { margin: .5rem 0; }
+.research-progress{margin:10px 0}.research-progress progress{width:100%;height:12px;accent-color:var(--accent)}.research-progress p{margin:6px 0 0}
+.elapsed{font-variant-numeric:tabular-nums;font-weight:600}.kv dd.step{color:var(--accent)}
