@@ -123,3 +123,15 @@ test('prospect PDF model excludes notes, brief and flagged evidence, and prices 
   const pdf = await R.renderPdf(m);
   assert.strictEqual(pdf.subarray(0, 5).toString(), '%PDF-');
 });
+
+test('disambiguation: mul labels and query relevance', () => {
+  const D = require('../src/research/disambiguate');
+  assert.strictEqual(D.textOf({ mul: { value: 'Pinterest' } }), 'Pinterest');
+  assert.strictEqual(D.textOf({ en: { value: 'Pinterest Inc.' }, mul: { value: 'Pinterest' } }), 'Pinterest Inc.');
+  assert.ok(D.isRelevant('Pinterest', ['Pinterest'], 'pinterest.com'));
+  assert.ok(D.isRelevant('Pinterest', ['Pinterest Inc.'], 'pinterest.de'));
+  assert.ok(D.isRelevant('Mercury', ['Mercury Marine'], 'mercurymarine.com'));
+  assert.ok(D.isRelevant('Meta', ['Meta Platforms'], 'meta.com'));
+  assert.ok(!D.isRelevant('Pinterest', ['Flyeralarm'], 'flyeralarm.com'));
+  assert.ok(!D.isRelevant('Pinterest', ['The Very Group'], 'shopdirect.com'));
+});
