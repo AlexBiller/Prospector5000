@@ -5,7 +5,7 @@ const TYPE_LABEL = {
   news: 'News article', press: 'Press release', blog: 'Company blog post', launch: 'Product launch',
   job: 'Open job posting', filing: 'SEC filing', web: 'Web page', manual: 'Your finding',
 };
-const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.85, news: 0.8, web: 0.6, manual: 1.2 };
+const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, news: 0.8, web: 0.6, manual: 1.2 };
 
 function relevanceText(src, kws) {
   const when = src.date ? ` (${src.date})` : '';
@@ -82,6 +82,11 @@ function rank(cands) {
     seen.add(key);
     return true;
   }).sort((a, b) => b.score - a.score);
+  // Diversity: each further candidate of the same source type ranks a little lower, so one
+  // prolific source (e.g. a large job board) cannot crowd out launches and announcements.
+  const seenType = {};
+  out.forEach((c) => { c._adj = c.score - 0.45 * (seenType[c.source_type] || 0); seenType[c.source_type] = (seenType[c.source_type] || 0) + 1; });
+  out.sort((a, b) => b._adj - a._adj).forEach((c) => { delete c._adj; });
   const rec = out.find((c) => !c.flags.stale && !c.flags.embedded_instructions && (c.flags.excerpt_verified || c.origin !== 'fetched'));
   if (rec) rec.recommended = true;
   return out;

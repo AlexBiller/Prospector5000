@@ -66,3 +66,11 @@ test('private addresses are blocked', () => {
   assert.ok(!isPrivateIp('8.8.8.8'));
   assert.strictEqual(safeUrl('javascript:alert(1)'), null);
 });
+
+test('ranking keeps one source type from crowding out the rest', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const mk = (type, i, score) => ({ title: `${type}${i}`, excerpt: `${type}${i}`, source_url: `https://x.example/${type}/${i}`, source_type: type, source_date: today, score, flags: { excerpt_verified: true }, origin: 'fetched' });
+  const ranked = C.rank([1, 2, 3, 4, 5].map((i) => mk('job', i, 3.5)).concat([mk('launch', 1, 3.2), mk('blog', 1, 3.0)]));
+  const top3 = ranked.slice(0, 4).map((c) => c.source_type);
+  assert.ok(top3.includes('launch') && top3.includes('blog'), top3.join(','));
+});
