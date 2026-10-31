@@ -21,6 +21,11 @@ const mock = mockServer((req, res) => {
   if (req.method === 'POST' && req.url === '/v3/organizations/org-test/sessions/devin-abc/messages') {
     return res.end(JSON.stringify({ session_id: 'devin-abc', url: 'https://app.devin.ai/sessions/abc', status: 'resuming', acus_consumed: 2.25, pull_requests: [] }));
   }
+  if (req.method === 'GET' && req.url.startsWith('/v3/organizations/org-test/sessions/devin-abc/messages?first=100')) {
+    return res.end(JSON.stringify(req.url.includes('after=c1')
+      ? { items: [{ source: 'devin', message: '**Deploying** the demo to GitHub Pages\nDetails follow', created_at: 1793430300 }], has_next_page: false, end_cursor: null }
+      : { items: [{ source: 'user', message: 'brief', created_at: 1793430000 }, { source: 'devin', message: 'Setting up the repo', created_at: 1793430100 }], has_next_page: true, end_cursor: 'c1' }));
+  }
   if (req.method === 'GET' && req.url === '/v3/organizations/org-test/sessions/devin-abc') {
     return res.end(JSON.stringify({ session_id: 'devin-abc', url: 'https://app.devin.ai/sessions/abc', acus_consumed: 2.25, pull_requests: [], ...sessionState }));
   }
@@ -90,6 +95,14 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.ok(create.body.structured_output_schema.properties.repo_url);
     assert.match(create.body.prompt, /Unofficial demo built with Devin - synthetic data/);
     assert.strictEqual((await c.post(`/accounts/${id}/build/confirm`, { token, acu: '7', ack: 'yes' })).status, 400, 'token single-use');
+    const live = JSON.parse((await c.get(`/api/accounts/${id}/build`)).text);
+    assert.strictEqual(live.status, 'building');
+    assert.strictEqual(live.step, 'Deploying the demo to GitHub Pages');
+    assert.ok(live.started_at);
+    const livePage = (await c.get(`/accounts/${id}`)).text;
+    assert.match(livePage, /data-elapsed-since="[^"]+"/);
+    assert.match(livePage, /Deploying the demo to GitHub Pages/);
+    assert.doesNotMatch(livePage, /http-equiv="refresh"/);
 
     page = (await c.get(`/accounts/${id}`)).text;
     assert.match(page, /Building/);

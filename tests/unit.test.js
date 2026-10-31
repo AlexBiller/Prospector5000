@@ -159,6 +159,16 @@ test('research reports per-source progress, and the account page shows a progres
   assert.doesNotMatch(page, /refreshes automatically/);
 });
 
+test('build step text and elapsed timer formatting', () => {
+  const D = require('../src/devin');
+  assert.strictEqual(D.stepText('\n## **Running** `npm test`\nmore'), 'Running npm test');
+  assert.strictEqual(D.stepText('x'.repeat(300)).length, 240);
+  const V = require('../src/views');
+  const t0 = Date.parse('2026-10-31T08:00:00Z');
+  assert.strictEqual(V.formatElapsed('2026-10-31T08:00:00Z', t0 + 65000), '1m 05s');
+  assert.strictEqual(V.formatElapsed('2026-10-31T08:00:00Z', t0 + 3723000), '1h 02m 03s');
+});
+
 test('disambiguation: mul labels and query relevance', () => {
   const D = require('../src/research/disambiguate');
   assert.strictEqual(D.textOf({ mul: { value: 'Pinterest' } }), 'Pinterest');

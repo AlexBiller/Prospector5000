@@ -79,6 +79,24 @@ async function createSession({ prompt, maxAcu, title }) {
 
 const getSession = (devinId) => call('GET', orgPath(`/sessions/${encodeURIComponent(devinId)}`));
 // Resumes a suspended session (POST /v3/organizations/{org_id}/sessions/{devin_id}/messages).
+// Devin's latest chat message, condensed to one line: shown as the build's current step.
+async function latestDevinMessage(devinId) {
+  let after = null;
+  let last = null;
+  for (let page = 0; page < 20; page++) {
+    const d = await call('GET', orgPath(`/sessions/${encodeURIComponent(devinId)}/messages?first=100${after ? `&after=${encodeURIComponent(after)}` : ''}`));
+    for (const m of (d && d.items) || []) if (m.source === 'devin' && typeof m.message === 'string' && m.message.trim()) last = m;
+    if (!d || !d.has_next_page || !d.end_cursor) break;
+    after = d.end_cursor;
+  }
+  return last ? { text: stepText(last.message), at: isoTime(last.created_at) } : null;
+}
+
+function stepText(msg) {
+  const line = msg.split('\n').map((l) => l.replace(/[*_`#>]+/g, '').replace(/\s+/g, ' ').trim()).find(Boolean) || '';
+  return line.length > 240 ? `${line.slice(0, 239)}…` : line;
+}
+
 const sendMessage = (devinId, message) => call('POST', orgPath(`/sessions/${encodeURIComponent(devinId)}/messages`), { message });
 
 const FAILED_DETAILS = new Set(['usage_limit_exceeded', 'out_of_credits', 'out_of_quota', 'no_quota_allocation', 'payment_declined',
@@ -129,4 +147,4 @@ const isWaiting = (a) => a.devin_status === 'running' && a.devin_status_detail =
 const needsAction = (a) => a.status === 'building' && !!a.devin_session_id &&
   (STOPPED_STATUSES.includes(a.devin_status) || isWaiting(a));
 
-module.exports = { needsAction, isWaiting, configured, testConnection, createSession, getSession, sendMessage, interpretSession, redact, DevinError, OUTPUT_SCHEMA };
+module.exports = { needsAction, isWaiting, configured, testConnection, createSession, getSession, sendMessage, latestDevinMessage, stepText, interpretSession, redact, DevinError, OUTPUT_SCHEMA };
