@@ -87,6 +87,14 @@ async function init() {
     };
   }
   for (const stmt of schema(impl.dialect)) await impl.run(stmt);
+  // Additive column migrations for databases created by earlier versions.
+  const real = impl.dialect === 'pg' ? 'DOUBLE PRECISION' : 'REAL';
+  for (const [col, type] of [['prior_acus', real]]) {
+    const exists = impl.dialect === 'pg'
+      ? await impl.get("SELECT 1 FROM information_schema.columns WHERE table_name = 'accounts' AND column_name = ?", [col])
+      : (await impl.all('PRAGMA table_info(accounts)')).some((c) => c.name === col);
+    if (!exists) await impl.run(`ALTER TABLE accounts ADD COLUMN ${col} ${type}`);
+  }
   return impl;
 }
 

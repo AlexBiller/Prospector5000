@@ -23,3 +23,6 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;bord
 .finding{border:1px dashed var(--line);border-radius:6px;padding:8px;margin:8px 0;display:grid;grid-template-columns:2fr 1fr 2fr;gap:0 8px}.finding textarea{grid-column:1/-1}
 details summary{cursor:pointer;font-weight:500;margin:6px 0}.kv{display:grid;grid-template-columns:140px 1fr;gap:4px 12px}.kv dt{color:var(--muted)}.kv dd{margin:0}
 .events{padding-left:18px}.danger-zone{margin-top:12px;display:flex;gap:10px;align-items:center}.danger-zone input{width:auto}.title-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.live{border-color:var(--ok)}
+.stopped { margin-top: 1rem; padding: 1rem; border: 1px solid #f0b4b4; border-radius: 10px; background: #fff7f7; }
+.stopped h3 { margin: 0 0 .5rem; }
+.stopped form { margin: .5rem 0; }

@@ -17,6 +17,9 @@ const mock = mockServer((req, res) => {
   if (req.method === 'POST' && req.url === '/v3/organizations/org-test/sessions') {
     return res.end(JSON.stringify({ session_id: 'devin-abc', url: 'https://app.devin.ai/sessions/abc', status: 'new', acus_consumed: 0 }));
   }
+  if (req.method === 'POST' && req.url === '/v3/organizations/org-test/sessions/devin-abc/messages') {
+    return res.end(JSON.stringify({ session_id: 'devin-abc', url: 'https://app.devin.ai/sessions/abc', status: 'resuming', acus_consumed: 2.25, pull_requests: [] }));
+  }
   if (req.method === 'GET' && req.url === '/v3/organizations/org-test/sessions/devin-abc') {
     return res.end(JSON.stringify({ session_id: 'devin-abc', url: 'https://app.devin.ai/sessions/abc', acus_consumed: 2.25, pull_requests: [], ...sessionState }));
   }
@@ -90,13 +93,45 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.match(page, /Building/);
     assert.match(page, /devin-abc/);
 
+    // Stopped build: continue the same session, or start over with a fresh confirmation.
+    sessionState = { status: 'suspended', status_detail: 'out_of_quota' };
+    await c.post(`/accounts/${id}/poll`);
+    page = (await c.get(`/accounts/${id}`)).text;
+    assert.match(page, /Continue build/);
+    assert.match(page, /Start over/);
+    assert.match(page, /out of ACUs/);
+    assert.strictEqual((await c.post(`/accounts/${id}/build/continue`, {})).status, 400, 'continue needs ack');
+    assert.strictEqual(calls.filter((x) => x.url.endsWith('/messages')).length, 0);
+    assert.strictEqual((await c.post(`/accounts/${id}/build/continue`, { ack: 'yes' })).status, 303);
+    const msg = calls.find((x) => x.method === 'POST' && x.url === '/v3/organizations/org-test/sessions/devin-abc/messages');
+    assert.ok(msg && /demo_url/.test(msg.body.message));
+    sessionState = { status: 'running', status_detail: 'working' };
+    await c.post(`/accounts/${id}/poll`);
+    let st = JSON.parse((await c.get(`/api/accounts/${id}`)).text);
+    assert.strictEqual(st.status, 'building');
+    assert.ok(!st.error, 'error cleared once running again');
+    assert.ok(!/Continue build/.test((await c.get(`/accounts/${id}`)).text));
+
+    sessionState = { status: 'error', status_detail: 'error' };
+    await c.post(`/accounts/${id}/poll`);
+    assert.strictEqual((await c.post(`/accounts/${id}/build/restart`, {})).status, 303);
+    st = JSON.parse((await c.get(`/api/accounts/${id}`)).text);
+    assert.strictEqual(st.status, 'brief_ready');
+    assert.ok(!st.devin_session_id);
+    assert.strictEqual(st.acus_consumed, 2.25);
+    assert.strictEqual(calls.filter((x) => x.method === 'POST' && x.url.endsWith('/sessions')).length, 1, 'start over alone does not start a session');
+    const prep2 = await c.post(`/accounts/${id}/build/prepare`, { acu: '5' });
+    const token2 = prep2.text.match(/name="token" value="([^"]+)"/)[1];
+    assert.strictEqual((await c.post(`/accounts/${id}/build/confirm`, { token: token2, acu: '5', ack: 'yes' })).status, 303);
+    assert.strictEqual(calls.filter((x) => x.method === 'POST' && x.url.endsWith('/sessions')).length, 2);
+
     sessionState = { status: 'exit', status_detail: 'finished', structured_output: { demo_url: 'https://mercury-demo.example', repo_url: 'https://github.com/x/mercury-demo' }, pull_requests: [{ pr_url: 'https://github.com/x/mercury-demo/pull/1' }] };
     await c.post(`/accounts/${id}/poll`);
     const done = JSON.parse((await c.get(`/api/accounts/${id}`)).text);
     assert.strictEqual(done.status, 'demo_live');
     assert.strictEqual(done.demo_url, 'https://mercury-demo.example/');
     assert.strictEqual(done.repo_url, 'https://github.com/x/mercury-demo');
-    assert.strictEqual(done.acus_consumed, 2.25);
+    assert.strictEqual(done.acus_consumed, 4.5, 'earlier attempt ACUs are included');
     assert.strictEqual(done.devin_session_url, 'https://app.devin.ai/sessions/abc');
 
     page = (await c.get('/settings')).text;

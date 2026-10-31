@@ -147,8 +147,9 @@ ${manualLinksForm(a, false)}</section>`);
     sections.push(html`<section class="card"><h2>Devin session</h2><dl class="kv">
 <dt>Session</dt><dd>${ext(a.devin_session_url, a.devin_session_id)}</dd>
 <dt>Status</dt><dd>${a.devin_status || 'unknown'}${a.devin_status_detail ? ` (${a.devin_status_detail})` : ''}</dd>
-<dt>ACU cap</dt><dd>${a.acu_limit}</dd><dt>ACUs consumed</dt><dd>${a.acus_consumed != null ? Number(a.acus_consumed).toFixed(2) : '-'}</dd>
+<dt>ACU cap</dt><dd>${a.acu_limit}</dd><dt>ACUs consumed</dt><dd>${a.acus_consumed != null ? Number(a.acus_consumed).toFixed(2) : '-'}${Number(a.prior_acus) > 0 ? ` (incl. ${Number(a.prior_acus).toFixed(2)} from earlier attempts)` : ''}</dd>
 <dt>Pull request</dt><dd>${ext(a.pr_url)}</dd><dt>Last checked</dt><dd>${a.last_polled_at || '-'}</dd></dl>
+${stoppedActions(a)}
 ${a.status === 'building' ? html`<form method="post" action="/accounts/${a.id}/poll"><button>Check now</button></form>${manualLinksForm(a, true)}` : ''}</section>`);
   }
 
@@ -169,6 +170,20 @@ ${a.status === 'building' ? html`<form method="post" action="/accounts/${a.id}/p
 <form method="post" action="/accounts/${a.id}/delete" class="danger-zone"><label class="small"><input type="checkbox" name="confirm" value="yes" required> Delete this account</label><button class="link danger">Delete</button></form></section>`);
 
   return html`${sections}`;
+}
+
+const QUOTA_DETAILS = new Set(['usage_limit_exceeded', 'out_of_credits', 'out_of_quota', 'no_quota_allocation', 'payment_declined',
+  'org_usage_limit_exceeded', 'user_usage_limit_exceeded', 'total_session_limit_exceeded', 'contract_expired']);
+
+function stoppedActions(a) {
+  if (a.status !== 'building' || !['suspended', 'error', 'exit'].includes(a.devin_status)) return '';
+  const quota = QUOTA_DETAILS.has(a.devin_status_detail);
+  return html`<div class="stopped"><h3>Build stopped</h3>
+${quota ? html`<p>Your Devin account is out of ACUs or hit a usage limit (${a.devin_status_detail}). Add quota in Devin's billing settings, then continue.</p>` : ''}
+<form method="post" action="/accounts/${a.id}/build/continue"><label class="choice"><input type="checkbox" name="ack" value="yes" required> <span>Continue this session. It can keep spending ACUs up to its cap of ${a.acu_limit}.</span></label>
+<button class="primary">Continue build</button></form>
+<form method="post" action="/accounts/${a.id}/build/restart"><button>Start over with a new session…</button></form>
+<p class="muted small">Start over sets this session aside and takes you back to "Build with Devin", where you confirm a new ACU cap. ACUs already used stay in the cost total.</p></div>`;
 }
 
 function manualLinksForm(a, collapsed) {

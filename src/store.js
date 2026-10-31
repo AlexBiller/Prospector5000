@@ -6,7 +6,7 @@ const JSON_FIELDS = ['disambiguation', 'proposal'];
 const ACCOUNT_FIELDS = new Set(['name', 'domain', 'description', 'wikidata_id', 'cik', 'status', 'mode', 'disambiguation',
   'research_state', 'research_message', 'research_provider', 'proposal', 'approved_candidate_id', 'brief', 'acu_limit',
   'devin_session_id', 'devin_session_url', 'devin_status', 'devin_status_detail', 'demo_url', 'repo_url', 'pr_url',
-  'acus_consumed', 'notes', 'error', 'last_polled_at']);
+  'acus_consumed', 'prior_acus', 'notes', 'error', 'last_polled_at']);
 
 function parseAccount(r) {
   if (!r) return null;
