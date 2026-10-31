@@ -1,5 +1,5 @@
 'use strict';
-// Prospect-facing PDF in Cognition's visual style. Contains only public evidence, the approved demo and its cost;
+// Prospect-facing PDF in Cognition's visual style. Contains only public evidence, the approved demo, its screenshot and build time;
 // never the owner's notes, the internal build brief, or flagged/unverified evidence.
 const PDFDocument = require('pdfkit');
 const config = require('./config');
@@ -11,7 +11,14 @@ const CP1252 = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š�
 const pdfText = (s) => String(s == null ? '' : s).replace(/[\u2010-\u2012]/g, '-').replace(/[\u00a0\u2009\u202f]/g, ' ')
   .replace(/./gu, (ch) => (ch.charCodeAt(0) < 256 || CP1252.includes(ch) ? ch : ''));
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
-const money = (n) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function formatDuration(startIso, endIso) {
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  if (!startIso || !endIso || !Number.isFinite(ms) || ms <= 0) return null;
+  const min = Math.max(1, Math.round(ms / 60000));
+  if (min < 60) return `${min} minute${min === 1 ? '' : 's'}`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return `${h} hr${h === 1 ? '' : 's'}${m ? ` ${m} min` : ''}`;
+}
 
 function usable(c) {
   const f = c.flags || {};
@@ -20,7 +27,7 @@ function usable(c) {
   return !X.looksLikeInstructions(`${c.title} ${c.summary}`);
 }
 
-function buildReportModel(a, candidates, { rate = config.report.acuPriceUsd, contact = config.report.contact, now = new Date() } = {}) {
+function buildReportModel(a, candidates, { contact = config.report.contact, now = new Date(), screenshot = null } = {}) {
   const approved = candidates.find((c) => c.id === a.approved_candidate_id);
   const pool = candidates.filter(usable).map((c) => ({ c, cats: O.forCandidate(c) }))
     .sort((x, y) => (x.c.id === a.approved_candidate_id ? -1 : 0) - (y.c.id === a.approved_candidate_id ? -1 : 0)
@@ -33,7 +40,6 @@ function buildReportModel(a, candidates, { rate = config.report.acuPriceUsd, con
   }));
   const areas = [];
   pool.forEach(({ cats }) => cats.slice(0, 2).forEach((k) => { if (!areas.some((x) => x.key === k.key)) areas.push(k); }));
-  const acus = a.acus_consumed != null && Number.isFinite(Number(a.acus_consumed)) ? Number(a.acus_consumed) : null;
   const name = a.name || a.query_name;
   const areaNames = areas.slice(0, 3).map((x) => x.label.toLowerCase().replace(/\bai\b/g, 'AI'));
   const summary = opportunities.length
@@ -47,7 +53,8 @@ function buildReportModel(a, candidates, { rate = config.report.acuPriceUsd, con
       title: a.proposal.title, concept: a.proposal.concept, interactions: a.proposal.interactions || [],
       demo_url: a.demo_url || null, repo_url: a.repo_url || null, basedOn: approved ? approved.title : null,
     } : null,
-    cost: acus != null ? { acus, rate, usd: Math.round(acus * rate * 100) / 100 } : null,
+    buildTime: a.demo_url ? formatDuration(a.build_started_at, a.build_finished_at) : null,
+    screenshot: a.demo_url && screenshot ? screenshot : null,
     contact: contact || null,
   };
 }
@@ -106,6 +113,18 @@ function renderPdf(model) {
     label('The alpha demo Devin built');
     doc.font('Helvetica-Bold').fontSize(13).fillColor(C.ink).text(pdfText(model.demo.title));
     doc.moveDown(0.25);
+    if (model.screenshot) {
+      try {
+        const img = doc.openImage(model.screenshot);
+        const scale = Math.min(W / img.width, 300 / img.height);
+        const w = img.width * scale, h = img.height * scale, x = 60 + (W - w) / 2;
+        ensure(h + 24);
+        const y = doc.y + 4;
+        doc.image(img, x, y, { width: w, height: h });
+        doc.rect(x, y, w, h).lineWidth(0.6).strokeColor(C.rule).stroke();
+        doc.x = 60; doc.y = y + h + 10;
+      } catch { /* unreadable image: skip it */ }
+    }
     body(model.demo.concept, { size: 10.5 });
     doc.moveDown(0.3);
     model.demo.interactions.forEach((t) => { ensure(20); body(`•  ${t}`, { size: 10.5, opts: { indent: 8 } }); });
@@ -117,13 +136,11 @@ function renderPdf(model) {
     body('Unofficial demo built with Devin using synthetic data only. It does not use or access any of your systems or data.', { size: 9, color: C.muted });
   }
 
-  label('What this alpha cost');
-  ensure(70);
-  if (model.cost) {
-    doc.font('Helvetica').fontSize(30).fillColor(C.ink).text(money(model.cost.usd));
-    body(`${model.cost.acus.toLocaleString('en-US', { maximumFractionDigits: 2 })} ACUs at ${money(model.cost.rate)} per ACU. ACUs (Agent Compute Units) measure the work Devin does; this demo was built autonomously, end to end.`, { size: 10.5, color: C.muted });
-  } else {
-    body('Not recorded yet. The cost appears here once the build reports the ACUs it used.', { size: 10.5, color: C.muted });
+  if (model.buildTime) {
+    label('Time to build');
+    ensure(70);
+    doc.font('Helvetica').fontSize(30).fillColor(C.ink).text(pdfText(model.buildTime));
+    body('From starting the Devin session to a live, deployed demo. Devin planned, built, tested and deployed it autonomously, end to end.', { size: 10.5, color: C.muted });
   }
 
   label('About Devin');
@@ -145,4 +162,4 @@ function renderPdf(model) {
   return done;
 }
 
-module.exports = { buildReportModel, renderPdf, pdfText };
+module.exports = { buildReportModel, renderPdf, pdfText, formatDuration };

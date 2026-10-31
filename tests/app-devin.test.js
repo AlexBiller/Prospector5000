@@ -11,6 +11,7 @@ const calls = [];
 let sessionState = { status: 'running', status_detail: 'working' };
 const mock = mockServer((req, res) => {
   calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: req.body ? JSON.parse(req.body) : null });
+  if (req.url === '/shot.png') { res.setHeader('content-type', 'image/png'); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')); }
   res.setHeader('content-type', 'application/json');
   if (req.headers.authorization !== `Bearer ${KEY}`) { res.statusCode = 401; return res.end(JSON.stringify({ detail: 'bad key' })); }
   if (req.url === '/v3/self') return res.end(JSON.stringify({ principal_type: 'service_user', service_user_name: 'ptd-test' }));
@@ -31,6 +32,7 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
   Object.assign(process.env, {
     OWNER_PASSWORD: 'pw2', SQLITE_PATH: tmpDb(), FORCE_HTTPS: '0', DEVIN_API_KEY: KEY, DEVIN_ORG_ID: 'org-test',
     DEVIN_API_BASE: `http://127.0.0.1:${mport}`, MAX_ACU_LIMIT: '40', DEVIN_POLL_SECONDS: '3600',
+    ALLOW_PRIVATE_FETCH: '1', SCREENSHOT_SERVICE: '',
   });
   const dis = require('../src/research/disambiguate');
   dis.searchCompanies = async () => [
@@ -133,7 +135,7 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.strictEqual((await c.post(`/accounts/${id}/build/confirm`, { token: token2, acu: '5', ack: 'yes' })).status, 303);
     assert.strictEqual(calls.filter((x) => x.method === 'POST' && x.url.endsWith('/sessions')).length, 2);
 
-    sessionState = { status: 'exit', status_detail: 'finished', structured_output: { demo_url: 'https://mercury-demo.example', repo_url: 'https://github.com/x/mercury-demo' }, pull_requests: [{ pr_url: 'https://github.com/x/mercury-demo/pull/1' }] };
+    sessionState = { status: 'exit', status_detail: 'finished', created_at: 1793430000, updated_at: 1793430000 + 11 * 60, structured_output: { demo_url: 'https://mercury-demo.example', repo_url: 'https://github.com/x/mercury-demo', screenshot_url: `http://127.0.0.1:${mport}/shot.png` }, pull_requests: [{ pr_url: 'https://github.com/x/mercury-demo/pull/1' }] };
     await c.post(`/accounts/${id}/poll`);
     const done = JSON.parse((await c.get(`/api/accounts/${id}`)).text);
     assert.strictEqual(done.status, 'demo_live');
@@ -141,6 +143,11 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.strictEqual(done.repo_url, 'https://github.com/x/mercury-demo');
     assert.strictEqual(done.acus_consumed, 4.5, 'earlier attempt ACUs are included');
     assert.strictEqual(done.devin_session_url, 'https://app.devin.ai/sessions/abc');
+    assert.match((await c.get(`/accounts/${id}`)).text, /Build time: 11 minutes/);
+    const pdf = await fetch(`${base}/accounts/${id}/report.pdf`, { headers: { cookie: c.cookie } });
+    const pdfText = Buffer.from(await pdf.arrayBuffer()).toString('latin1');
+    assert.match(pdfText, /\/Subtype \/Image/, 'demo screenshot embedded');
+    assert.ok(calls.some((x) => x.url === '/shot.png'));
 
     page = (await c.get('/settings')).text;
     assert.match(page, /connected/);

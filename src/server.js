@@ -11,6 +11,7 @@ const devin = require('./devin');
 const brief = require('./brief');
 const research = require('./research');
 const report = require('./report');
+const screenshot = require('./screenshot');
 const { searchCompanies, domainOf } = require('./research/disambiguate');
 const llm = require('./research/llm');
 const { safeUrl } = require('./html');
@@ -270,7 +271,9 @@ app.post('/accounts/:id/build/confirm', wrap(async (req, res) => {
     await store.updateAccount(a.id, {
       status: 'building', mode: 'connected', acu_limit: acu, devin_session_id: s.session_id,
       devin_session_url: info.devin_session_url, devin_status: info.devin_status, error: null,
+      build_started_at: info.created_at || new Date().toISOString(), build_finished_at: null, screenshot_url: null,
     });
+    await store.deleteScreenshot(a.id);
     await store.addEvent(a.id, `Devin session ${s.session_id} created with an ACU cap of ${acu}.`);
   } catch (e) {
     await store.updateAccount(a.id, { error: `Could not start the Devin session: ${devin.redact(e.message)}` });
@@ -292,11 +295,15 @@ async function pollAccount(a) {
       ...(info.pr_url ? { pr_url: info.pr_url } : {}),
       ...(info.demo_url ? { demo_url: info.demo_url } : {}),
       ...(info.repo_url ? { repo_url: info.repo_url } : {}),
+      ...(info.screenshot_url ? { screenshot_url: info.screenshot_url } : {}),
+      ...(info.created_at ? { build_started_at: info.created_at } : {}),
     };
     if (info.live) {
       fields.status = 'demo_live';
       fields.error = null;
+      fields.build_finished_at = info.updated_at || new Date().toISOString();
       await store.addEvent(a.id, 'Devin finished: demo is live.');
+      refreshScreenshot(a.id);
     } else if (info.finished) {
       fields.error = 'The Devin session finished without reporting both demo_url and repo_url. Check the session and paste the links manually.';
     } else if (info.failed) {
@@ -345,6 +352,7 @@ app.post('/accounts/:id/build/restart', wrap(async (req, res) => {
   await store.updateAccount(a.id, {
     status: 'brief_ready', prior_acus: spent, devin_session_id: null, devin_session_url: null, devin_status: null,
     devin_status_detail: null, pr_url: null, error: null, last_polled_at: null,
+    screenshot_url: null, build_started_at: null, build_finished_at: null,
   });
   await store.addEvent(a.id, `Set aside stopped Devin session ${a.devin_session_id}${a.devin_session_url ? ` (${a.devin_session_url})` : ''} after ${spent.toFixed(2)} ACUs. Ready for a new build.`);
   res.redirect(303, `/accounts/${a.id}`);
@@ -358,8 +366,12 @@ app.post('/accounts/:id/links', wrap(async (req, res) => {
   const repoUrl = safeUrl(req.body.repo_url);
   if (!demoUrl || !repoUrl) return send(res.status(400), views.errorPage('Both links must be valid http(s) URLs.'), { title: 'Invalid links' });
   const acus = req.body.acus !== undefined && req.body.acus !== '' && Number.isFinite(Number(req.body.acus)) ? Number(req.body.acus) : a.acus_consumed;
-  await store.updateAccount(a.id, { demo_url: demoUrl, repo_url: repoUrl, acus_consumed: acus, status: 'demo_live', error: null, mode: a.devin_session_id ? a.mode : 'manual' });
+  await store.updateAccount(a.id, {
+    demo_url: demoUrl, repo_url: repoUrl, acus_consumed: acus, status: 'demo_live', error: null, mode: a.devin_session_id ? a.mode : 'manual',
+    ...(a.build_started_at && !a.build_finished_at ? { build_finished_at: new Date().toISOString() } : {}),
+  });
   await store.addEvent(a.id, 'Demo and repo links saved manually.');
+  if (demoUrl !== a.demo_url) { await store.deleteScreenshot(a.id); refreshScreenshot(a.id); }
   res.redirect(303, `/accounts/${a.id}`);
 }));
 
@@ -377,6 +389,39 @@ app.post('/accounts/:id/delete', wrap(async (req, res) => {
   res.redirect(303, '/');
 }));
 
+const shotsInFlight = new Map();
+function demoScreenshot(a) {
+  if (!a.demo_url) return Promise.resolve(null);
+  if (!shotsInFlight.has(a.id)) {
+    const p = (async () => {
+      const saved = await store.getScreenshot(a.id);
+      if (saved) return saved;
+      const buf = await screenshot.capture(a);
+      if (buf) await store.saveScreenshot(a.id, buf);
+      return buf;
+    })().catch(() => null).finally(() => shotsInFlight.delete(a.id));
+    shotsInFlight.set(a.id, p);
+  }
+  return shotsInFlight.get(a.id);
+}
+// Captured in the background when a demo goes live so the PDF download is fast.
+function refreshScreenshot(id) {
+  store.getAccount(id).then((a) => a && demoScreenshot(a)).catch(() => {});
+}
+
+// Builds that finished before timing was recorded: read start/finish from the Devin session once.
+async function backfillTiming(a) {
+  if (a.status !== 'demo_live' || !a.devin_session_id || a.build_finished_at || !devin.configured()) return a;
+  try {
+    const info = devin.interpretSession(await devin.getSession(a.devin_session_id));
+    if (!info.created_at || !info.updated_at) return a;
+    const fields = { build_started_at: a.build_started_at || info.created_at, build_finished_at: info.updated_at,
+      ...(info.screenshot_url && !a.screenshot_url ? { screenshot_url: info.screenshot_url } : {}) };
+    await store.updateAccount(a.id, fields);
+    return { ...a, ...fields };
+  } catch { return a; }
+}
+
 app.get('/accounts/:id/report.pdf', wrap(async (req, res) => {
   const a = await loadAccount(req, res);
   if (!a) return;
@@ -384,7 +429,8 @@ app.get('/accounts/:id/report.pdf', wrap(async (req, res) => {
   if (a.status === 'confirming' || (!candidates.length && !a.proposal)) {
     return send(res.status(400), views.errorPage('Run research or approve a proposal before downloading the PDF.'), { title: 'Not ready' });
   }
-  const pdf = await report.renderPdf(report.buildReportModel(a, candidates));
+  const acct = await backfillTiming(a);
+  const pdf = await report.renderPdf(report.buildReportModel(acct, candidates, { screenshot: await demoScreenshot(acct) }));
   const slug = String(a.name || 'prospect').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'prospect';
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="Cognition-${slug}-Devin-opportunities.pdf"`);
@@ -400,7 +446,6 @@ app.get('/accounts/:id', wrap(async (req, res) => {
   }
   a._maxAcu = config.devin.maxAcu;
   a._defaultAcu = config.devin.defaultAcu;
-  a._acuRate = config.report.acuPriceUsd;
   const page = views.accountPage({
     a, candidates: await store.listCandidates(a.id), events: await store.listEvents(a.id),
     research: research.providerStatus(), devinOn: devin.configured(),
@@ -414,7 +459,7 @@ async function connection(force) {
   return connCache.v;
 }
 const settingsView = async (force) => views.settingsPage({
-  devin: await connection(force), research: research.providerStatus(), llm: llm.configured(), dbDialect: db.dialect, contact: !!config.contactEmail, acuRate: config.report.acuPriceUsd, reportContact: !!config.report.contact,
+  devin: await connection(force), research: research.providerStatus(), llm: llm.configured(), dbDialect: db.dialect, contact: !!config.contactEmail, screenshotService: !!config.report.screenshotService, reportContact: !!config.report.contact,
 });
 app.get('/settings', wrap(async (req, res) => send(res, await settingsView(false), { title: 'Settings' })));
 app.post('/settings/test', wrap(async (req, res) => send(res, await settingsView(true), { title: 'Settings' })));

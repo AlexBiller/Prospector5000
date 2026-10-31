@@ -45,11 +45,11 @@ async function readCapped(res, maxBytes) {
     }
     chunks.push(value);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
 
 // Fetches a public URL with SSRF checks on every redirect hop, a timeout and a size cap.
-async function fetchText(u, { maxBytes = 1500000, timeoutMs = 12000, headers = {}, method = 'GET', body } = {}) {
+async function fetchRaw(u, { maxBytes = 1500000, timeoutMs = 12000, headers = {}, method = 'GET', body } = {}) {
   let url = u;
   for (let hop = 0; hop < 5; hop++) {
     await assertPublicUrl(url);
@@ -67,14 +67,21 @@ async function fetchText(u, { maxBytes = 1500000, timeoutMs = 12000, headers = {
       continue;
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return { url, status: res.status, contentType: res.headers.get('content-type') || '', text: await readCapped(res, maxBytes) };
+    return { url, status: res.status, contentType: res.headers.get('content-type') || '', buffer: await readCapped(res, maxBytes) };
   }
   throw new Error('too many redirects');
 }
+
+async function fetchText(u, opts) {
+  const { buffer, ...r } = await fetchRaw(u, opts);
+  return { ...r, text: buffer.toString('utf8') };
+}
+
+const fetchBuffer = (u, opts = {}) => fetchRaw(u, { ...opts, headers: { accept: 'image/png,image/jpeg,image/*;q=0.8', ...(opts.headers || {}) } });
 
 async function fetchJson(u, opts = {}) {
   const r = await fetchText(u, { ...opts, headers: { accept: 'application/json', ...(opts.headers || {}) } });
   return JSON.parse(r.text);
 }
 
-module.exports = { fetchText, fetchJson, assertPublicUrl, isPrivateIp, UA };
+module.exports = { fetchText, fetchBuffer, fetchJson, assertPublicUrl, isPrivateIp, UA };

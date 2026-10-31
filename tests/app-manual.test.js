@@ -18,7 +18,7 @@ const fixture = mockServer((req, res) => {
 
 function startServer(port) {
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { PATH: process.env.PATH, PORT: String(port), OWNER_PASSWORD: PW, SQLITE_PATH: DB, ALLOW_PRIVATE_FETCH: '1', FORCE_HTTPS: '0' },
+    env: { PATH: process.env.PATH, PORT: String(port), OWNER_PASSWORD: PW, SQLITE_PATH: DB, ALLOW_PRIVATE_FETCH: '1', FORCE_HTTPS: '0', SCREENSHOT_SERVICE: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';

@@ -60,6 +60,7 @@ const OUTPUT_SCHEMA = {
   properties: {
     demo_url: { type: 'string', description: 'Public URL of the deployed demo' },
     repo_url: { type: 'string', description: 'URL of the public GitHub repository' },
+    screenshot_url: { type: 'string', description: "Public URL of a PNG screenshot of the demo's main screen (e.g. the raw.githubusercontent.com URL of docs/screenshot.png in the repo)" },
     notes: { type: 'string', description: 'Anything the requester should know' },
   },
   required: ['demo_url', 'repo_url'],
@@ -90,6 +91,11 @@ function repoFromPr(prUrl) {
 
 // Turns a session payload into the fields we store. Session output is untrusted: only
 // http(s) URLs are kept.
+const isoTime = (t) => {
+  const d = typeof t === 'number' ? new Date(t < 1e12 ? t * 1000 : t) : t ? new Date(t) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toISOString() : null;
+};
+
 function interpretSession(s) {
   const so = (s && s.structured_output) || {};
   const pr = s && Array.isArray(s.pull_requests) && s.pull_requests[0];
@@ -104,6 +110,9 @@ function interpretSession(s) {
     devin_status: s.status || null,
     devin_status_detail: s.status_detail || null,
     devin_session_url: safeUrl(s.url),
+    screenshot_url: safeUrl(so.screenshot_url),
+    created_at: isoTime(s.created_at),
+    updated_at: isoTime(s.updated_at),
     acus_consumed: typeof s.acus_consumed === 'number' ? s.acus_consumed : null,
     pr_url: prUrl,
     demo_url: demoUrl,

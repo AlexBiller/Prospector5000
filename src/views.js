@@ -7,6 +7,7 @@ const { DEMO_LABEL, MAX_INTERACTIONS } = require('./brief');
 const { logo, FAVICON } = require('./logo');
 const O = require('./research/opportunity');
 const { needsAction, isWaiting } = require('./devin');
+const { formatDuration } = require('./report');
 
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
 
@@ -156,14 +157,15 @@ ${a.status === 'building' ? html`<form method="post" action="/accounts/${a.id}/p
 
   if (a.status === 'demo_live') {
     sections.push(html`<section class="card live"><h2>Demo live</h2><p>Demo: ${ext(a.demo_url)}</p><p>Repo: ${ext(a.repo_url)}</p>
+${formatDuration(a.build_started_at, a.build_finished_at) ? html`<p>Build time: ${formatDuration(a.build_started_at, a.build_finished_at)}</p>` : ''}
 <p class="muted small">Demos are untrusted output and open in a new tab without referrer; they never receive this app's cookies or keys.</p></section>`);
   }
 
   if (a.status !== 'confirming' && (candidates.length || a.proposal)) {
     sections.push(html`<section class="card"><h2>Prospect PDF</h2>
-<p>A Cognition-branded summary for the prospect: the opportunities found, where Devin helps, the alpha demo${a.demo_url ? '' : ' (once built)'} and what it cost.</p>
+<p>A Cognition-branded summary for the prospect: the opportunities found, where Devin helps, the alpha demo${a.demo_url ? ' with a screenshot' : ' (once built)'} and how long Devin took to build it.</p>
 <p><a class="button primary" href="/accounts/${a.id}/report.pdf" target="_blank">Download PDF</a></p>
-<p class="muted small">Leaves out your notes, the internal build brief and any flagged or unverified evidence. Cost uses ${a._acuRate != null ? `$${Number(a._acuRate).toFixed(2)}` : 'the configured rate'} per ACU.</p></section>`);
+<p class="muted small">Leaves out your notes, the internal build brief and any flagged or unverified evidence.</p></section>`);
   }
 
   sections.push(html`<section class="card"><h2>Notes</h2><form method="post" action="/accounts/${a.id}/notes"><textarea name="notes" rows="3" maxlength="5000">${a.notes || ''}</textarea><button>Save notes</button></form></section>
@@ -186,7 +188,7 @@ ${quota ? html`<p>Your Devin account is out of ACUs or hit a usage limit (${a.de
 <form method="post" action="/accounts/${a.id}/build/continue"><label class="choice"><input type="checkbox" name="ack" value="yes" required> <span>Continue this session. It can keep spending ACUs up to its cap of ${a.acu_limit}.</span></label>
 <button class="primary">Continue build</button></form>
 <form method="post" action="/accounts/${a.id}/build/restart"><button>Start over with a new session…</button></form>
-<p class="muted small">Start over sets this session aside and takes you back to "Build with Devin", where you confirm a new ACU cap. ACUs already used stay in the cost total.</p></div>`;
+<p class="muted small">Start over sets this session aside and takes you back to "Build with Devin", where you confirm a new ACU cap. ACUs already used stay in the total.</p></div>`;
 }
 
 function manualLinksForm(a, collapsed) {
@@ -217,7 +219,7 @@ function buildConfirmPage({ a, acu, token }) {
 <div class="row"><button class="primary">Spend up to ${acu} ACUs and build</button><a class="button" href="/accounts/${a.id}">Cancel</a></div></form></section>`;
 }
 
-function settingsPage({ devin, research, llm, dbDialect, contact, acuRate, reportContact }) {
+function settingsPage({ devin, research, llm, dbDialect, contact, screenshotService, reportContact }) {
   const yes = (b) => (b ? html`<span class="badge ok">connected</span>` : html`<span class="badge off">not connected</span>`);
   return html`<section class="card"><h1>Settings</h1><p class="muted small">Keys are read from server-side environment variables and are never displayed.</p>
 <h2>Devin API</h2><p>${yes(devin.connected)} ${devin.principal ? html`<span class="muted small">as ${devin.principal}</span>` : ''}</p>${devin.reason ? html`<p class="muted">${devin.reason}</p>` : ''}
@@ -225,7 +227,7 @@ function settingsPage({ devin, research, llm, dbDialect, contact, acuRate, repor
 ${devin.connected ? html`<p class="small muted">Approved briefs show "Build with Devin"; each build asks you to confirm its ACU limit.</p>` : html`<p class="small muted">Set DEVIN_API_KEY and DEVIN_ORG_ID on the server to enable automatic builds.</p>`}
 <h2>Research provider</h2><p>${research.available ? html`<span class="badge ok">available</span> ${research.label}` : html`<span class="badge off">unavailable</span> Set TAVILY_API_KEY, or RESEARCH_PROVIDER=public, to enable automated research.`}</p>
 <h2>Model (optional)</h2><p>${llm ? html`<span class="badge ok">configured</span> used to summarize fetched sources; every excerpt is verified against the page` : html`<span class="badge off">not configured</span> candidates are extracted heuristically`}</p>
-<h2>Prospect PDF</h2><p>Cost is ACUs used × $${Number(acuRate).toFixed(2)} per ACU (ACU_PRICE_USD). Contact line: ${reportContact ? 'set' : 'not set (REPORT_CONTACT)'}.</p>
+<h2>Prospect PDF</h2><p>Shows build time (Devin session start to finished demo) and a demo screenshot. Screenshot service: ${screenshotService ? 'on' : 'off (SCREENSHOT_SERVICE)'}. Contact line: ${reportContact ? 'set' : 'not set (REPORT_CONTACT)'}.</p>
 <h2>Storage</h2><p>${dbDialect === 'pg' ? 'Postgres (DATABASE_URL)' : 'SQLite (local file)'}</p>
 <h2>Contact for research user agent</h2><p>${contact ? 'set' : 'not set (CONTACT_EMAIL); SEC EDGAR may refuse requests without it'}</p></section>`;
 }
