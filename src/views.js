@@ -90,7 +90,15 @@ function manualFindingsForm(a) {
 <button>Add findings</button></form></details>`;
 }
 
-function accountPage({ a, candidates, events, research, devinOn, error, flash }) {
+function researchProgress(a, p) {
+  const { done = 0, total = 1, step = 'Researching public sources' } = p || {};
+  return html`<div class="research-progress" data-research-progress="/api/accounts/${a.id}/research">
+<progress max="${total}" value="${done}" aria-label="Research progress"></progress>
+<p class="flash small" data-step>${step}…</p>
+<noscript><p class="small muted">Reload the page to check progress.</p></noscript></div>`;
+}
+
+function accountPage({ a, candidates, events, research, devinOn, error, flash, progress }) {
   const cand = candidates.find((c) => c.id === a.approved_candidate_id);
   const sections = [];
   sections.push(html`<section class="card"><div class="title-row"><h1>${a.name || a.query_name}</h1>${statusBadge(a.status)} ${modeBadge(a.mode)}</div>
@@ -112,7 +120,7 @@ ${opts.length ? html`<form method="post" action="/accounts/${a.id}/confirm">${op
     const running = a.research_state === 'running';
     sections.push(html`<section class="card"><h2>2. Research</h2>
 ${research.available ? html`<p class="small muted">Provider: ${research.label}</p>` : html`<p class="warn-box">Automated research is unavailable: no research provider is configured on the server. Add findings manually below; they go through the same review and approval.</p>`}
-${running ? html`<p class="flash">Researching public sources… this page refreshes automatically.</p>` : ''}
+${running ? researchProgress(a, progress) : ''}
 ${a.research_message ? html`<p>${a.research_message}</p>` : ''}
 ${research.available && !running && ['researching', 'awaiting_approval'].includes(a.status) ? html`<form method="post" action="/accounts/${a.id}/research"><button>${candidates.some((c) => c.origin === 'fetched') ? 'Re-run research' : 'Run research'}</button></form>` : ''}
 ${['researching', 'awaiting_approval'].includes(a.status) ? manualFindingsForm(a) : ''}</section>`);

@@ -129,6 +129,8 @@ test('manual flow end to end, auth, approval gate, injection, restart persistenc
     assert.match(pdf.headers.get('content-type'), /application\/pdf/);
     assert.ok(pdf.text.startsWith('%PDF-'));
     assert.match((await c.get(`/accounts/${id}`)).text, /Download PDF/);
+    const rp = JSON.parse((await c.get(`/api/accounts/${id}/research`)).text);
+    assert.ok(rp.state !== 'running' && !('done' in rp));
     assert.strictEqual((await anonPdf(base, id)).status, 303);
 
     // Restart preserves accounts, statuses and sessions.
