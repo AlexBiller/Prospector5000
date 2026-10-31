@@ -27,5 +27,9 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: ACU_PRICE_USD
+        value: "2.25"
+      - key: REPORT_CONTACT
+        sync: false
       - key: CONTACT_EMAIL
         sync: false

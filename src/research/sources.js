@@ -1,6 +1,7 @@
 'use strict';
 const { fetchText, fetchJson } = require('../net');
 const X = require('./extract');
+const O = require('./opportunity');
 
 async function mapLimit(items, limit, fn) {
   const out = [];
@@ -174,7 +175,9 @@ async function companyFeeds(account, log) {
     for (const it of await indexPagePosts(d)) if (!seen.has(it.link)) { seen.add(it.link); items.push(it); }
   }
   items.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  const top = items.slice(0, 5);
+  // Among recent posts, prefer ones that point at migrations, security, AI and similar engineering work.
+  const top = items.slice(0, 15).map((it, i) => ({ it, i, k: O.strength(O.classify(`${it.title || ''} ${it.link} ${it.description || ''}`.slice(0, 2000))) }))
+    .sort((a, b) => (b.k > 0) - (a.k > 0) || b.k - a.k || a.i - b.i).slice(0, 6).map((x) => x.it);
   const out = await mapLimit(top, 3, async (it) => {
     const type = /press|newsroom|\/news\//i.test(it.link + it.feed) ? 'press' : 'blog';
     try {
@@ -191,8 +194,10 @@ async function companyFeeds(account, log) {
 }
 
 /* ---------- open roles: Greenhouse, Lever, Ashby public job boards ---------- */
-const JOB_SIGNAL = /\b(ai|ml|machine learning|llm|genai|agents?|data platform|platform|infrastructure|api|developer|sdk|mobile|ios|android|payments?|automation|integrations?|founding|new product|software engineer|product engineer|product manager|forward deployed)\b/i;
-const BUILD_TEAM = /\b(engineering|product|research|ai|ml|data|design|platform)\b/i;
+const JOB_SIGNAL = /\b(ai|ml|machine learning|llm|genai|agents?|data platform|platform|infrastructure|api|developer|sdk|mobile|ios|android|automation|integrations?|software engineer|product engineer|forward deployed|migrations?|moderniz\w*|legacy|security|appsec|devops|sre|site reliability|cloud|test|qa|quality)\b/i;
+const BUILD_TEAM = /\b(engineering|research|ai|ml|data|platform|security|infrastructure)\b/i;
+const ENG_ROLE = /\b(engineer\w*|developer|sre|devops|architect|programmer|scientist)\b/i;
+const BOARD_URL = { Greenhouse: (s) => `https://boards.greenhouse.io/${s}`, Lever: (s) => `https://jobs.lever.co/${s}`, Ashby: (s) => `https://jobs.ashbyhq.com/${s}` };
 
 async function jobBoards(account, log) {
   const root = (account.domain || '').split('.')[0];
@@ -200,6 +205,7 @@ async function jobBoards(account, log) {
   const slugs = [...new Set([root, nameSlug, String(account.name || '').toLowerCase().trim().replace(/\s+/g, '-')].filter(Boolean))];
   let jobs = null;
   let board = null;
+  let board_url = null;
   for (const slug of slugs) {
     const attempts = [
       ['Greenhouse', async () => (await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs?content=true`, { maxBytes: 8000000, timeoutMs: 15000 })).jobs.map((j) => ({
@@ -219,22 +225,76 @@ async function jobBoards(account, log) {
       try { const list = await fn(); return Array.isArray(list) && list.length ? { name, list } : null; } catch { return null; }
     }));
     const best = found.filter(Boolean).sort((a, b) => b.list.length - a.list.length)[0];
-    if (best) { jobs = best.list; board = `${best.name} (${slug})`; }
+    if (best) { jobs = best.list; board = `${best.name} (${slug})`; board_url = BOARD_URL[best.name](encodeURIComponent(slug)); }
     if (jobs) break;
   }
   if (!jobs) { log('Job postings: no public Greenhouse, Lever or Ashby board found.'); return []; }
   const byTeam = new Map();
   jobs.filter((j) => j.url && j.title)
-    .map((j) => ({ ...j, s: (JOB_SIGNAL.test(j.title) ? 2 : 0) + (BUILD_TEAM.test(j.team) ? 2 : 0) + (JOB_SIGNAL.test(j.team) ? 1 : 0) }))
+    .map((j) => ({ ...j, s: (JOB_SIGNAL.test(j.title) ? 2 : 0) + (BUILD_TEAM.test(j.team) ? 2 : 0) + (JOB_SIGNAL.test(j.team) ? 1 : 0)
+      + Math.min(3, O.strength(O.classify(`${j.title}. ${String(j.text).slice(0, 4000)}`)) * 0.3) }))
     .filter((j) => j.s > 0)
     .sort((a, b) => b.s - a.s || String(b.date || '').localeCompare(String(a.date || '')))
     .forEach((j) => { if (!byTeam.has(j.team || j.title)) byTeam.set(j.team || j.title, j); });
   const picks = [...byTeam.values()].slice(0, 5);
   log(`Job postings: ${jobs.length} open role(s) on ${board}; using ${picks.length}.`);
-  return picks.map((j) => ({
+  const out = picks.map((j) => ({
     url: j.url, title: `${j.title}${j.team ? ` (${j.team})` : ''}`, date: X.toIsoDate(j.date), type: 'job',
     text: `${j.title}.\n${j.text}`.slice(0, 60000),
   }));
+  const summary = staffingSummary(account, jobs, board.split(' ')[0], board_url);
+  if (summary) out.unshift(summary);
+  return out;
+}
+
+// Engineering hiring volume, computed from the public board listing itself.
+function staffingSummary(account, jobs, boardName, url) {
+  const eng = jobs.filter((j) => ENG_ROLE.test(j.title) || /engineering/i.test(j.team || ''));
+  if (eng.length < 3) return null;
+  const teams = new Map();
+  eng.forEach((j) => { const t = j.team || 'Unspecified team'; teams.set(t, (teams.get(t) || 0) + 1); });
+  const topTeams = [...teams.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([t, n]) => `${t} (${n})`).join(', ');
+  const newest = eng.map((j) => X.toIsoDate(j.date)).filter(Boolean).sort().pop() || null;
+  const text = `${account.name} lists ${jobs.length} open roles on its public ${boardName} job board, ${eng.length} of them engineering roles. `
+    + `Engineering hiring is concentrated in ${topTeams}. `
+    + `Sample engineering openings: ${eng.slice(0, 6).map((j) => j.title).join('; ')}.`;
+  return { url, title: `${account.name} is hiring ${eng.length} engineers`, date: newest, type: 'job', text };
+}
+
+/* ---------- security: NVD CVEs that name the company as the product vendor ---------- */
+function parseNvd(data, account) {
+  const slug = String(account.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const root = (account.domain || '').split('.')[0].toLowerCase();
+  const nameRe = new RegExp(`\\b${String(account.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  return (data.vulnerabilities || []).map((v) => v.cve).filter((c) => {
+    if (!c || !c.id) return false;
+    const vendors = JSON.stringify(c.configurations || []).match(/cpe:2\.3:[aoh]:([^:]+):/g) || [];
+    const vendorHit = vendors.some((m) => { const vnd = m.split(':')[3]; return vnd === slug || vnd === root; });
+    const desc = ((c.descriptions || []).find((d) => d.lang === 'en') || {}).value || '';
+    return vendorHit || (!vendors.length && nameRe.test(desc));
+  }).map((c) => {
+    const desc = ((c.descriptions || []).find((d) => d.lang === 'en') || {}).value || '';
+    const m = c.metrics || {};
+    const metric = [...(m.cvssMetricV40 || []), ...(m.cvssMetricV31 || []), ...(m.cvssMetricV30 || [])][0];
+    const sev = metric && metric.cvssData ? ` CVSS ${metric.cvssData.baseScore} (${metric.cvssData.baseSeverity}).` : '';
+    return {
+      url: `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(c.id)}`, title: `${c.id}: security vulnerability in ${account.name} software`,
+      date: X.toIsoDate(c.published), type: 'security', text: `${c.id} security vulnerability. ${desc.replace(/\s+/g, ' ')}${sev}`.slice(0, 20000),
+    };
+  }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+async function nvdCves(account, log) {
+  if (!account.name) return [];
+  const end = new Date();
+  const start = new Date(end.getTime() - 119 * 86400000);
+  const iso = (d) => d.toISOString().replace('Z', '');
+  const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(account.name)}&pubStartDate=${iso(start)}&pubEndDate=${iso(end)}&resultsPerPage=200`;
+  let data;
+  try { data = await fetchJson(url, { timeoutMs: 20000, maxBytes: 8000000 }); } catch (e) { log(`Security advisories (NVD) unavailable right now: ${e.message}`); return []; }
+  const all = parseNvd(data, account);
+  log(all.length ? `Security advisories: ${all.length} CVE(s) for ${account.name} products in the last 120 days; using ${Math.min(all.length, 3)}.` : 'Security advisories: no recent CVEs name this company as the vendor.');
+  return all.slice(0, 3);
 }
 
 /* ---------- SEC EDGAR filings (10-K / 20-F / S-1 / F-1) ---------- */
@@ -264,4 +324,4 @@ async function secFilings(account, log) {
   return out;
 }
 
-module.exports = { pageSource, gdeltNews, hnLaunches, companyFeeds, jobBoards, secFilings, parseFeed, mapLimit, onDomain, hostOf };
+module.exports = { pageSource, gdeltNews, hnLaunches, companyFeeds, jobBoards, nvdCves, parseNvd, staffingSummary, secFilings, parseFeed, mapLimit, onDomain, hostOf };

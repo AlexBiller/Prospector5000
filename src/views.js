@@ -5,6 +5,7 @@ const { html, raw, safeUrl } = require('./html');
 const { TYPE_LABEL } = require('./research/candidates');
 const { DEMO_LABEL, MAX_INTERACTIONS } = require('./brief');
 const { logo, FAVICON } = require('./logo');
+const O = require('./research/opportunity');
 
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
 
@@ -40,12 +41,13 @@ function dashboard({ accounts, devinConnected }) {
 <td>${(a.proposal && a.proposal.title) || html`<span class="muted">-</span>`}</td>
 <td>${ext(a.demo_url, 'Demo')}</td><td>${ext(a.repo_url, 'Repo')}</td>
 <td>${a.acus_consumed != null ? Number(a.acus_consumed).toFixed(1) : html`<span class="muted">-</span>`}</td>
+<td>${a.status !== 'confirming' ? html`<a href="/accounts/${a.id}/report.pdf" target="_blank">PDF</a>` : html`<span class="muted">-</span>`}</td>
 <td class="small">${day(a.created_at)}</td><td class="small notes">${a.notes || ''}</td></tr>`);
   return html`<section class="card"><h1>New account</h1>
 <form method="post" action="/accounts" class="row"><input name="company" placeholder="Company name, e.g. Ramp" required maxlength="100">
 <button class="primary">Find company</button></form>
 <p class="muted small">Devin API: ${devinConnected ? 'configured (builds run automatically)' : 'not configured (manual copy-paste flow)'}.</p></section>
-<section class="card"><h2>Accounts</h2>${accounts.length ? html`<div class="scroll"><table><thead><tr><th>Company</th><th>Status</th><th>Mode</th><th>Approved project</th><th>Demo</th><th>Repo</th><th>ACUs</th><th>Date</th><th>Notes</th></tr></thead>
+<section class="card"><h2>Accounts</h2>${accounts.length ? html`<div class="scroll"><table><thead><tr><th>Company</th><th>Status</th><th>Mode</th><th>Approved project</th><th>Demo</th><th>Repo</th><th>ACUs</th><th>PDF</th><th>Date</th><th>Notes</th></tr></thead>
 <tbody>${rows}</tbody></table></div>` : html`<p class="muted">No accounts yet.</p>`}</section>`;
 }
 
@@ -58,11 +60,18 @@ ${c.origin === 'fetched' && !f.excerpt_verified ? html`<span class="flag warn">E
 ${f.fetch_failed ? html`<span class="flag warn">Page could not be fetched; evidence is your note</span>` : ''}`;
 }
 
+function oppView(c) {
+  const cats = O.forCandidate(c);
+  if (!cats.length) return html`<p class="small muted">No clear Devin opportunity signal in this source.</p>`;
+  return html`<div class="opp">${cats.slice(0, 3).map((k) => html`<span class="badge opp-${k.key}">${k.label}</span>`)}</div>
+<p class="small"><strong>Where Devin helps:</strong> ${cats[0].pitch}</p>`;
+}
+
 function candidateCard(a, c, { selectable }) {
   return html`<article class="cand ${c.recommended ? 'recommended' : ''} ${c.flags && c.flags.stale ? 'is-stale' : ''}">
 <div class="cand-head">${c.recommended ? html`<span class="badge rec">Recommended</span>` : ''}<span class="badge type">${TYPE_LABEL[c.source_type] || c.source_type}</span>
 <span class="date ${c.flags && c.flags.stale ? 'stale' : ''}">${c.source_date || 'date unknown'}</span>${flagsView(c)}</div>
-<h3>${c.title}</h3><p>${c.summary}</p>
+<h3>${c.title}</h3>${oppView(c)}<p>${c.summary}</p>
 <p class="small"><strong>Why it fits a demo:</strong> ${c.relevance}</p>
 <blockquote class="excerpt"><span class="muted small">${c.origin === 'manual' ? 'Your note' : 'Excerpt from source'}:</span> ${c.excerpt}</blockquote>
 <p class="small">Source: ${c.source_url ? ext(c.source_url, c.source_title || c.source_url) : html`<span class="muted">manual entry (no URL)</span>`} · ${c.origin}</p>
@@ -148,6 +157,13 @@ ${a.status === 'building' ? html`<form method="post" action="/accounts/${a.id}/p
 <p class="muted small">Demos are untrusted output and open in a new tab without referrer; they never receive this app's cookies or keys.</p></section>`);
   }
 
+  if (a.status !== 'confirming' && (candidates.length || a.proposal)) {
+    sections.push(html`<section class="card"><h2>Prospect PDF</h2>
+<p>A Cognition-branded summary for the prospect: the opportunities found, where Devin helps, the alpha demo${a.demo_url ? '' : ' (once built)'} and what it cost.</p>
+<p><a class="button primary" href="/accounts/${a.id}/report.pdf" target="_blank">Download PDF</a></p>
+<p class="muted small">Leaves out your notes, the internal build brief and any flagged or unverified evidence. Cost uses ${a._acuRate != null ? `$${Number(a._acuRate).toFixed(2)}` : 'the configured rate'} per ACU.</p></section>`);
+  }
+
   sections.push(html`<section class="card"><h2>Notes</h2><form method="post" action="/accounts/${a.id}/notes"><textarea name="notes" rows="3" maxlength="5000">${a.notes || ''}</textarea><button>Save notes</button></form></section>
 <section class="card"><details><summary>Activity</summary><ul class="events">${events.map((e) => html`<li><span class="muted small">${e.at.replace('T', ' ').slice(0, 19)}</span> ${e.message}</li>`)}</ul></details>
 <form method="post" action="/accounts/${a.id}/delete" class="danger-zone"><label class="small"><input type="checkbox" name="confirm" value="yes" required> Delete this account</label><button class="link danger">Delete</button></form></section>`);
@@ -183,7 +199,7 @@ function buildConfirmPage({ a, acu, token }) {
 <div class="row"><button class="primary">Spend up to ${acu} ACUs and build</button><a class="button" href="/accounts/${a.id}">Cancel</a></div></form></section>`;
 }
 
-function settingsPage({ devin, research, llm, dbDialect, contact }) {
+function settingsPage({ devin, research, llm, dbDialect, contact, acuRate, reportContact }) {
   const yes = (b) => (b ? html`<span class="badge ok">connected</span>` : html`<span class="badge off">not connected</span>`);
   return html`<section class="card"><h1>Settings</h1><p class="muted small">Keys are read from server-side environment variables and are never displayed.</p>
 <h2>Devin API</h2><p>${yes(devin.connected)} ${devin.principal ? html`<span class="muted small">as ${devin.principal}</span>` : ''}</p>${devin.reason ? html`<p class="muted">${devin.reason}</p>` : ''}
@@ -191,6 +207,7 @@ function settingsPage({ devin, research, llm, dbDialect, contact }) {
 <p class="small muted">Set DEVIN_API_KEY and DEVIN_ORG_ID on the server to enable automatic builds.</p>
 <h2>Research provider</h2><p>${research.available ? html`<span class="badge ok">available</span> ${research.label}` : html`<span class="badge off">unavailable</span> Set TAVILY_API_KEY, or RESEARCH_PROVIDER=public, to enable automated research.`}</p>
 <h2>Model (optional)</h2><p>${llm ? html`<span class="badge ok">configured</span> used to summarize fetched sources; every excerpt is verified against the page` : html`<span class="badge off">not configured</span> candidates are extracted heuristically`}</p>
+<h2>Prospect PDF</h2><p>Cost is ACUs used × $${Number(acuRate).toFixed(2)} per ACU (ACU_PRICE_USD). Contact line: ${reportContact ? 'set' : 'not set (REPORT_CONTACT)'}.</p>
 <h2>Storage</h2><p>${dbDialect === 'pg' ? 'Postgres (DATABASE_URL)' : 'SQLite (local file)'}</p>
 <h2>Contact for research user agent</h2><p>${contact ? 'set' : 'not set (CONTACT_EMAIL); SEC EDGAR may refuse requests without it'}</p></section>`;
 }

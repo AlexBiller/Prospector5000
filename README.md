@@ -52,3 +52,9 @@ With no research provider configured, the app says research is unavailable and y
 ## Deploying on Render
 
 `render.yaml` describes a Node web service (`npm ci` / `npm start`). Set `OWNER_PASSWORD` and `DATABASE_URL` (e.g. a free Neon Postgres database), plus any optional keys. Note that Render's free plan sleeps after inactivity; the first request after that takes about a minute. Data lives in Postgres, so it survives restarts and redeploys.
+
+## Devin opportunities and the prospect PDF
+
+Research is tuned for Cognition sales: sources are classified into Devin-fit categories (migration and modernization, security and vulnerabilities, AI initiatives, testing and reliability, engineering capacity, data and platform work) and rank above generic news. Security advisories come from the NVD CVE API (keyless), and engineering hiring volume comes from the public job board.
+
+Each account has a **Download PDF** button that produces a Cognition-styled one-pager for the prospect: the opportunities found (with dated sources), where Devin helps, the approved alpha demo with its links, and what the alpha cost (`ACUs used × ACU_PRICE_USD`, default 2.25). Set `REPORT_CONTACT` to print a contact line. The PDF never includes your notes, the internal build brief, or flagged/unverified evidence.

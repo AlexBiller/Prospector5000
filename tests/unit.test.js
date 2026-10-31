@@ -74,3 +74,52 @@ test('ranking keeps one source type from crowding out the rest', () => {
   const top3 = ranked.slice(0, 4).map((c) => c.source_type);
   assert.ok(top3.includes('launch') && top3.includes('blog'), top3.join(','));
 });
+
+test('opportunity categories: migrations, security, AI and capacity are detected and ranked first', () => {
+  const O = require('../src/research/opportunity');
+  const keys = (t, type) => O.classify(t, type).map((c) => c.key);
+  assert.ok(keys('We are migrating our legacy monolith to microservices').includes('migration'));
+  assert.ok(keys('A critical vulnerability (CVE-2026-1234) requires remediation').includes('security'));
+  assert.ok(keys('Launching generative AI agents for support').includes('ai'));
+  assert.deepStrictEqual(keys('Senior Software Engineer', 'job').includes('staffing'), true);
+  assert.deepStrictEqual(keys('Our CEO spoke at a conference about quarterly earnings'), []);
+  const C = require('../src/research/candidates');
+  const today = new Date().toISOString().slice(0, 10);
+  const generic = C.finalize({ url: 'https://x.example/a', type: 'news', date: today, text: '' }, { title: 'Acme CEO wins award', summary: 'Acme CEO received an industry award at a gala dinner.', excerpt: 'Acme CEO received an industry award at a gala dinner.' }, 'Acme');
+  const opp = C.finalize({ url: 'https://x.example/b', type: 'news', date: today, text: '' }, { title: 'Acme begins cloud migration', summary: 'Acme is migrating legacy mainframe workloads to the cloud.', excerpt: 'Acme is migrating legacy mainframe workloads to the cloud.' }, 'Acme');
+  assert.ok(opp.score > generic.score);
+});
+
+test('default proposal follows the opportunity category', () => {
+  const { defaultProposal } = require('../src/brief');
+  const p = defaultProposal({ name: 'Acme' }, { title: 'Patch backlog for CVE-2026-1234', summary: 'A critical vulnerability needs remediation across services.', excerpt: '', source_type: 'security', source_date: '2026-10-01' });
+  assert.match(p.concept, /remediate/);
+  assert.ok(p.interactions.some((i) => /vulnerability/i.test(i)));
+});
+
+test('NVD parsing keeps only CVEs for the company as vendor', () => {
+  const { parseNvd } = require('../src/research/sources');
+  const mk = (id, vendor, desc) => ({ cve: { id, published: '2026-10-01T00:00:00.000', descriptions: [{ lang: 'en', value: desc }],
+    configurations: vendor ? [{ nodes: [{ cpeMatch: [{ criteria: `cpe:2.3:a:${vendor}:product:*:*:*:*:*:*:*:*` }] }] }] : [] } });
+  const out = parseNvd({ vulnerabilities: [mk('CVE-2026-1', 'acme', 'RCE in Acme Gateway.'), mk('CVE-2026-2', 'other', 'Acme mentioned in passing.'), mk('CVE-2026-3', null, 'Flaw in Acme Router firmware.')] }, { name: 'Acme', domain: 'acme.com' });
+  assert.deepStrictEqual(out.map((s) => s.url.split('/').pop()), ['CVE-2026-1', 'CVE-2026-3']);
+  assert.strictEqual(out[0].type, 'security');
+});
+
+test('prospect PDF model excludes notes, brief and flagged evidence, and prices ACUs', async () => {
+  const R = require('../src/report');
+  const today = new Date().toISOString().slice(0, 10);
+  const a = { id: 1, name: 'Acme', approved_candidate_id: 1, acus_consumed: 7.4, notes: 'INTERNAL NOTE', brief: 'INTERNAL BRIEF', proposal: { title: 'Acme migration demo', concept: 'x'.repeat(50), interactions: ['One'] } };
+  const cands = [
+    { id: 1, title: 'Acme migrates its monolith', summary: 'Migrating legacy services.', excerpt: 'e', source_url: 'https://acme.com/b', source_date: today, source_type: 'blog', origin: 'fetched', flags: { excerpt_verified: true } },
+    { id: 2, title: 'Hostile page', summary: 's', excerpt: 'e', source_url: 'https://evil.example', source_date: today, source_type: 'news', origin: 'fetched', flags: { embedded_instructions: true } },
+    { id: 3, title: 'Unverified', summary: 's', excerpt: 'e', source_url: 'https://x.example', source_date: today, source_type: 'news', origin: 'fetched', flags: { excerpt_verified: false } },
+    { id: 4, title: 'Private note', summary: 's', excerpt: 'e', source_url: null, source_type: 'manual', origin: 'manual', flags: {} },
+  ];
+  const m = R.buildReportModel(a, cands, { rate: 2.25 });
+  assert.deepStrictEqual(m.opportunities.map((o) => o.title), ['Acme migrates its monolith']);
+  assert.deepStrictEqual(m.cost, { acus: 7.4, rate: 2.25, usd: 16.65 });
+  assert.doesNotMatch(JSON.stringify(m), /INTERNAL/);
+  const pdf = await R.renderPdf(m);
+  assert.strictEqual(pdf.subarray(0, 5).toString(), '%PDF-');
+});

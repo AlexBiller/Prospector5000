@@ -1,4 +1,5 @@
 'use strict';
+const { sentenceSignal } = require('./opportunity');
 
 const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '-', ndash: '-', hellip: '...', rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', copy: '(c)', reg: '(R)', trade: '(TM)', middot: '-', bull: '-' };
 
@@ -109,7 +110,7 @@ function matchedKeywords(s) {
 }
 
 function sentenceScore(s, companyName) {
-  let score = matchedKeywords(s).length;
+  let score = matchedKeywords(s).length + 1.5 * sentenceSignal(s);
   if (companyName && s.toLowerCase().includes(companyName.toLowerCase())) score += 1.5;
   if (s.length < 60) score -= 1;
   return score;

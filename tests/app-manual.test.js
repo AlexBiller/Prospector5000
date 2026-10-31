@@ -30,6 +30,7 @@ function startServer(port) {
     child.stdout.on('data', () => { if (log.includes('listening')) { clearTimeout(t); resolve(child); } });
   });
 }
+const anonPdf = (base, id) => new Client(base).get(`/accounts/${id}/report.pdf`);
 const stop = (c) => new Promise((r) => { c.on('exit', r); c.kill('SIGTERM'); });
 
 test('manual flow end to end, auth, approval gate, injection, restart persistence', async () => {
@@ -123,6 +124,12 @@ test('manual flow end to end, auth, approval gate, injection, restart persistenc
 
     await c.post(`/accounts/${id}/links`, { demo_url: 'https://demo.example', repo_url: 'https://github.com/acme/demo', acus: '4.5' });
     assert.strictEqual(JSON.parse((await c.get(`/api/accounts/${id}`)).text).status, 'demo_live');
+    const pdf = await c.get(`/accounts/${id}/report.pdf`);
+    assert.strictEqual(pdf.status, 200);
+    assert.match(pdf.headers.get('content-type'), /application\/pdf/);
+    assert.ok(pdf.text.startsWith('%PDF-'));
+    assert.match((await c.get(`/accounts/${id}`)).text, /Download PDF/);
+    assert.strictEqual((await anonPdf(base, id)).status, 303);
 
     // Restart preserves accounts, statuses and sessions.
     await stop(srv);

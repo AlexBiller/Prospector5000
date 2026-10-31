@@ -10,6 +10,7 @@ const views = require('./views');
 const devin = require('./devin');
 const brief = require('./brief');
 const research = require('./research');
+const report = require('./report');
 const { searchCompanies, domainOf } = require('./research/disambiguate');
 const llm = require('./research/llm');
 const { safeUrl } = require('./html');
@@ -322,6 +323,20 @@ app.post('/accounts/:id/delete', wrap(async (req, res) => {
   res.redirect(303, '/');
 }));
 
+app.get('/accounts/:id/report.pdf', wrap(async (req, res) => {
+  const a = await loadAccount(req, res);
+  if (!a) return;
+  const candidates = await store.listCandidates(a.id);
+  if (a.status === 'confirming' || (!candidates.length && !a.proposal)) {
+    return send(res.status(400), views.errorPage('Run research or approve a proposal before downloading the PDF.'), { title: 'Not ready' });
+  }
+  const pdf = await report.renderPdf(report.buildReportModel(a, candidates));
+  const slug = String(a.name || 'prospect').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'prospect';
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="Cognition-${slug}-Devin-opportunities.pdf"`);
+  res.send(pdf);
+}));
+
 app.get('/accounts/:id', wrap(async (req, res) => {
   let a = await loadAccount(req, res);
   if (!a) return;
@@ -331,6 +346,7 @@ app.get('/accounts/:id', wrap(async (req, res) => {
   }
   a._maxAcu = config.devin.maxAcu;
   a._defaultAcu = config.devin.defaultAcu;
+  a._acuRate = config.report.acuPriceUsd;
   const page = views.accountPage({
     a, candidates: await store.listCandidates(a.id), events: await store.listEvents(a.id),
     research: research.providerStatus(), devinOn: devin.configured(),
@@ -344,7 +360,7 @@ async function connection(force) {
   return connCache.v;
 }
 const settingsView = async (force) => views.settingsPage({
-  devin: await connection(force), research: research.providerStatus(), llm: llm.configured(), dbDialect: db.dialect, contact: !!config.contactEmail,
+  devin: await connection(force), research: research.providerStatus(), llm: llm.configured(), dbDialect: db.dialect, contact: !!config.contactEmail, acuRate: config.report.acuPriceUsd, reportContact: !!config.report.contact,
 });
 app.get('/settings', wrap(async (req, res) => send(res, await settingsView(false), { title: 'Settings' })));
 app.post('/settings/test', wrap(async (req, res) => send(res, await settingsView(true), { title: 'Settings' })));

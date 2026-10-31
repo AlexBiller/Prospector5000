@@ -1,17 +1,19 @@
 'use strict';
 const X = require('./extract');
+const O = require('./opportunity');
 
 const TYPE_LABEL = {
   news: 'News article', press: 'Press release', blog: 'Company blog post', launch: 'Product launch',
-  job: 'Open job posting', filing: 'SEC filing', web: 'Web page', manual: 'Your finding',
+  job: 'Open job posting', filing: 'SEC filing', security: 'Security advisory (CVE)', web: 'Web page', manual: 'Your finding',
 };
-const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, news: 0.8, web: 0.6, manual: 1.2 };
+const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, security: 1.1, news: 0.8, web: 0.6, manual: 1.2 };
 
 function relevanceText(src, kws) {
   const when = src.date ? ` (${src.date})` : '';
   let base;
   switch (src.type) {
     case 'job': base = `Open role${when}: companies hire where they are investing, so a demo of a workflow this team would own is timely.`; break;
+    case 'security': base = `Published vulnerability affecting this company's products${when}. Remediation work like this is a direct fit for Devin.`; break;
     case 'filing': base = `Stated in an SEC filing${when}. Filings describe strategy the company has committed to publicly.`; break;
     case 'blog': base = `Published on the company's own site${when}, so it describes work they chose to highlight.`; break;
     case 'press': base = `Announcement from the company${when}. A demo that extends it connects to something they are actively promoting.`; break;
@@ -25,10 +27,17 @@ function relevanceText(src, kws) {
   return base;
 }
 
-function scoreFor(src, bestSentenceScore, injected) {
+// Opportunities where Devin / Cognition can help (migrations, security, AI, capacity...) rank above generic news.
+function opportunityBoost(text, type) {
+  const s = O.strength(O.classify(text, type));
+  return s ? Math.min(2, s * 0.35) : -0.8;
+}
+
+function scoreFor(src, bestSentenceScore, injected, oppText) {
   const age = X.ageDays(src.date);
   const recency = age === null ? 0.3 : age <= 90 ? 1 : age <= 180 ? 0.8 : age <= 365 ? 0.5 : -1;
-  return (TYPE_WEIGHT[src.type] || 0.6) + recency + Math.min(Math.max(bestSentenceScore, 0), 4) * 0.4 - (injected ? 2 : 0);
+  return (TYPE_WEIGHT[src.type] || 0.6) + recency + Math.min(Math.max(bestSentenceScore, 0), 4) * 0.3
+    + opportunityBoost(oppText, src.type) - (injected ? 2 : 0);
 }
 
 function flagsFor(src, injected, extra = {}) {
@@ -68,7 +77,7 @@ function finalize(src, { title, summary, excerpt, bestScore = 1, injected = fals
     source_type: src.type,
     relevance: relevance || relevanceText(src, kws),
     origin: origin || 'fetched',
-    score: Math.round(scoreFor(src, bestScore, injected) * 100) / 100,
+    score: Math.round(scoreFor(src, bestScore, injected, `${t} ${summary} ${excerpt}`) * 100) / 100,
     flags: flagsFor(src, injected, { excerpt_verified: src.text ? X.excerptIsVerbatim(excerpt, src.text) : false, ...(extraFlags || {}) }),
     recommended: false,
   };

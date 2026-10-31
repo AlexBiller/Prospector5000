@@ -13,6 +13,10 @@ module.exports = {
   sqlitePath: env.SQLITE_PATH || path.join(__dirname, '..', 'data', 'app.db'),
   sessionDays: int(env.SESSION_DAYS, 7),
   contactEmail: env.CONTACT_EMAIL || '',
+  report: {
+    acuPriceUsd: Number.isFinite(parseFloat(env.ACU_PRICE_USD)) ? parseFloat(env.ACU_PRICE_USD) : 2.25,
+    contact: (env.REPORT_CONTACT || '').slice(0, 200),
+  },
   allowPrivateFetch: env.ALLOW_PRIVATE_FETCH === '1',
   devin: {
     apiKey: env.DEVIN_API_KEY || '',

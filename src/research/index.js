@@ -8,16 +8,16 @@ const { tavilySources } = require('./tavily');
 
 function providerStatus() {
   const p = config.research.provider;
-  if (p === 'public') return { available: true, name: 'public', label: 'Public sources (GDELT news, company feeds, HN launches, job boards, SEC EDGAR)' };
-  if (config.research.tavilyKey && (!p || p === 'tavily')) return { available: true, name: 'tavily', label: 'Tavily search + public job boards and SEC EDGAR' };
+  if (p === 'public') return { available: true, name: 'public', label: 'Public sources (GDELT news, company feeds, HN launches, job boards, NVD CVEs, SEC EDGAR)' };
+  if (config.research.tavilyKey && (!p || p === 'tavily')) return { available: true, name: 'tavily', label: 'Tavily search + public job boards, NVD CVEs and SEC EDGAR' };
   return { available: false, name: null, label: 'Not configured' };
 }
 
 async function gather(account, log) {
   const status = providerStatus();
   const tasks = status.name === 'tavily'
-    ? [tavilySources, S.jobBoards, S.secFilings]
-    : [S.gdeltNews, S.hnLaunches, S.companyFeeds, S.jobBoards, S.secFilings];
+    ? [tavilySources, S.jobBoards, S.nvdCves, S.secFilings]
+    : [S.gdeltNews, S.hnLaunches, S.companyFeeds, S.jobBoards, S.nvdCves, S.secFilings];
   const settled = await Promise.allSettled(tasks.map((t) => t(account, log)));
   settled.forEach((r, i) => { if (r.status === 'rejected') log(`${tasks[i].name} failed: ${r.reason && r.reason.message}`); });
   const seen = new Set();

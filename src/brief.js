@@ -1,6 +1,7 @@
 'use strict';
 const { shorten, splitSentences, looksLikeInstructions } = require('./research/extract');
 const { TYPE_LABEL } = require('./research/candidates');
+const O = require('./research/opportunity');
 
 const DEMO_LABEL = 'Unofficial demo built with Devin - synthetic data';
 const MAX_INTERACTIONS = 5;
@@ -38,12 +39,56 @@ function validateProposal(p) {
   return errors;
 }
 
+// Demo shapes that show Devin doing the kind of work the evidence points to.
+const PLAYS = {
+  migration: {
+    concept: (n, t) => `A small web app that shows how Devin would run "${t}" for ${n}: a seeded inventory of legacy modules, a migration plan split into parallel tasks, and a tracker of reviewed pull requests moving code to the target stack.`,
+    interactions: ['Browse a seeded inventory of legacy modules with a migration risk score for each', 'Generate a phased migration plan and see it split into parallel Devin tasks',
+      'Open one task to compare the before and after code and its passing tests', 'Track overall migration progress on a dashboard as tasks complete'],
+  },
+  security: {
+    concept: (n, t) => `A small web app that shows how Devin would remediate "${t}" for ${n}: a seeded queue of vulnerability findings, proposed fixes with diffs and test results, and a remediation dashboard for the security team.`,
+    interactions: ['Review a seeded queue of vulnerability findings ranked by severity', 'Open a finding to see the affected code, the proposed fix and its passing tests',
+      'Approve a fix and watch the remediation dashboard update', 'Export a remediation summary for the security team'],
+  },
+  staffing: {
+    concept: (n, t) => `A small web app that shows how Devin adds engineering capacity for ${n} (signal: "${t}"): a seeded engineering backlog, tickets handed to Devin in parallel, and the reviewed pull requests that come back.`,
+    interactions: ['Browse a seeded engineering backlog tagged by size and area', 'Assign tickets to Devin and watch them progress in parallel',
+      'Review a completed ticket: summary, code diff and test results', 'Compare weekly throughput with and without Devin on a dashboard'],
+  },
+  ai: {
+    concept: (n, t) => `A small web app prototyping the AI capability behind "${t}" for ${n}, built by Devin on seeded data, with answers traceable to source records and a small evaluation view.`,
+    interactions: ['Use the AI feature on seeded records', 'Inspect how each answer traces back to its source records',
+      'Run a small evaluation set and view accuracy results', 'Compare two configurations side by side'],
+  },
+  quality: {
+    concept: (n, t) => `A small web app that shows how Devin would improve "${t}" for ${n}: a seeded repository health report, Devin-generated tests and fixes, and coverage and pass-rate trends.`,
+    interactions: ['View seeded coverage and flaky-test reports by module', 'Ask Devin to add tests for a low-coverage module and review them',
+      'Re-run the suite and watch coverage and pass rate update', 'Export a quality summary for engineering leads'],
+  },
+  data: {
+    concept: (n, t) => `A small web app that shows how Devin would build "${t}" for ${n}: seeded data sources, a new integration or pipeline, and a simple dashboard over the results.`,
+    interactions: ['Browse seeded data sources and pipeline health', 'Add a new integration and preview the mapped records',
+      'Watch a pipeline run with step-by-step status', 'Query the resulting dataset in a simple dashboard'],
+  },
+};
+
 function defaultProposal(account, cand) {
   if (!cand) return { title: '', concept: '', interactions: [] };
   const label = (TYPE_LABEL[cand.source_type] || 'public source').toLowerCase();
   const clean = (t) => splitSentences(String(t || '')).filter((x) => !looksLikeInstructions(x)).join(' ');
   const topic = shorten(clean(cand.title) || 'their current priorities', 90);
   const summary = clean(cand.summary);
+  const top = O.forCandidate({ ...cand, title: clean(cand.title), summary, excerpt: clean(cand.excerpt) })[0];
+  const play = top && PLAYS[top.key];
+  if (play) {
+    return {
+      title: shorten(`${account.name}: ${topic}`, 120),
+      concept: shorten(`${play.concept(account.name, topic)} It is grounded in a public signal (${label}${cand.source_date ? `, ${cand.source_date}` : ''})${summary ? `: ${summary}` : '.'} `
+        + 'Everything runs on synthetic, seeded data and can be walked through in under five minutes.', 1500),
+      interactions: play.interactions,
+    };
+  }
   return {
     title: shorten(`${account.name}: ${topic}`, 120),
     concept: shorten(
