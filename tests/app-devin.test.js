@@ -112,6 +112,14 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.ok(!st.error, 'error cleared once running again');
     assert.ok(!/Continue build/.test((await c.get(`/accounts/${id}`)).text));
 
+    sessionState = { status: 'running', status_detail: 'waiting_for_user' };
+    await c.post(`/accounts/${id}/poll`);
+    page = (await c.get(`/accounts/${id}`)).text;
+    assert.match(page, /Devin is waiting for you/);
+    assert.match(page, /Continue build/);
+    assert.strictEqual((await c.post(`/accounts/${id}/build/continue`, { ack: 'yes' })).status, 303);
+    assert.strictEqual(calls.filter((x) => x.url.endsWith('/messages')).length, 2, 'continue nudges a waiting session');
+
     sessionState = { status: 'error', status_detail: 'error' };
     await c.post(`/accounts/${id}/poll`);
     assert.strictEqual((await c.post(`/accounts/${id}/build/restart`, {})).status, 303);
