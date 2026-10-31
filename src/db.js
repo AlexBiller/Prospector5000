@@ -46,6 +46,10 @@ function schema(dialect) {
       at TEXT NOT NULL, message TEXT NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS events_account ON events(account_id)`,
+    `CREATE TABLE IF NOT EXISTS screenshots (
+      account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+      image TEXT NOT NULL, created_at TEXT NOT NULL
+    )`,
   ];
 }
 
@@ -89,7 +93,7 @@ async function init() {
   for (const stmt of schema(impl.dialect)) await impl.run(stmt);
   // Additive column migrations for databases created by earlier versions.
   const real = impl.dialect === 'pg' ? 'DOUBLE PRECISION' : 'REAL';
-  for (const [col, type] of [['prior_acus', real]]) {
+  for (const [col, type] of [['prior_acus', real], ['screenshot_url', 'TEXT'], ['build_started_at', 'TEXT'], ['build_finished_at', 'TEXT']]) {
     const exists = impl.dialect === 'pg'
       ? await impl.get("SELECT 1 FROM information_schema.columns WHERE table_name = 'accounts' AND column_name = ?", [col])
       : (await impl.all('PRAGMA table_info(accounts)')).some((c) => c.name === col);

@@ -14,7 +14,7 @@ module.exports = {
   sessionDays: int(env.SESSION_DAYS, 7),
   contactEmail: env.CONTACT_EMAIL || '',
   report: {
-    acuPriceUsd: Number.isFinite(parseFloat(env.ACU_PRICE_USD)) ? parseFloat(env.ACU_PRICE_USD) : 2.25,
+    screenshotService: env.SCREENSHOT_SERVICE !== undefined ? env.SCREENSHOT_SERVICE : 'https://image.thum.io/get/width/1200/crop/800/noanimate/{url}',
     contact: (env.REPORT_CONTACT || '').slice(0, 200),
   },
   allowPrivateFetch: env.ALLOW_PRIVATE_FETCH === '1',

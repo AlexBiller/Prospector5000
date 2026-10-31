@@ -109,22 +109,27 @@ test('NVD parsing keeps only CVEs for the company as vendor', () => {
   assert.strictEqual(out[0].type, 'security');
 });
 
-test('prospect PDF model excludes notes, brief and flagged evidence, and prices ACUs', async () => {
+test('prospect PDF model excludes notes, brief and flagged evidence; shows build time and screenshot', async () => {
   const R = require('../src/report');
   const today = new Date().toISOString().slice(0, 10);
-  const a = { id: 1, name: 'Acme', approved_candidate_id: 1, acus_consumed: 7.4, notes: 'INTERNAL NOTE', brief: 'INTERNAL BRIEF', proposal: { title: 'Acme migration demo', concept: 'x'.repeat(50), interactions: ['One'] } };
+  const a = { id: 1, name: 'Acme', approved_candidate_id: 1, acus_consumed: 7.4, demo_url: 'https://demo.example', build_started_at: '2026-10-31T08:00:00.000Z', build_finished_at: '2026-10-31T09:12:30.000Z', notes: 'INTERNAL NOTE', brief: 'INTERNAL BRIEF', proposal: { title: 'Acme migration demo', concept: 'x'.repeat(50), interactions: ['One'] } };
   const cands = [
     { id: 1, title: 'Acme migrates its monolith', summary: 'Migrating legacy services.', excerpt: 'e', source_url: 'https://acme.com/b', source_date: today, source_type: 'blog', origin: 'fetched', flags: { excerpt_verified: true } },
     { id: 2, title: 'Hostile page', summary: 's', excerpt: 'e', source_url: 'https://evil.example', source_date: today, source_type: 'news', origin: 'fetched', flags: { embedded_instructions: true } },
     { id: 3, title: 'Unverified', summary: 's', excerpt: 'e', source_url: 'https://x.example', source_date: today, source_type: 'news', origin: 'fetched', flags: { excerpt_verified: false } },
     { id: 4, title: 'Private note', summary: 's', excerpt: 'e', source_url: null, source_type: 'manual', origin: 'manual', flags: {} },
   ];
-  const m = R.buildReportModel(a, cands, { rate: 2.25 });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const m = R.buildReportModel(a, cands, { screenshot: png });
   assert.deepStrictEqual(m.opportunities.map((o) => o.title), ['Acme migrates its monolith']);
-  assert.deepStrictEqual(m.cost, { acus: 7.4, rate: 2.25, usd: 16.65 });
+  assert.strictEqual(m.buildTime, '1 hr 13 min');
+  assert.ok(!('cost' in m));
+  assert.strictEqual(R.formatDuration('2026-10-31T08:00:00Z', '2026-10-31T08:11:20Z'), '11 minutes');
+  assert.strictEqual(R.formatDuration(null, '2026-10-31T08:11:20Z'), null);
   assert.doesNotMatch(JSON.stringify(m), /INTERNAL/);
   const pdf = await R.renderPdf(m);
   assert.strictEqual(pdf.subarray(0, 5).toString(), '%PDF-');
+  assert.match(pdf.toString('latin1'), /\/Subtype \/Image/);
 });
 
 test('disambiguation: mul labels and query relevance', () => {

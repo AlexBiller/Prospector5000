@@ -6,7 +6,7 @@ const JSON_FIELDS = ['disambiguation', 'proposal'];
 const ACCOUNT_FIELDS = new Set(['name', 'domain', 'description', 'wikidata_id', 'cik', 'status', 'mode', 'disambiguation',
   'research_state', 'research_message', 'research_provider', 'proposal', 'approved_candidate_id', 'brief', 'acu_limit',
   'devin_session_id', 'devin_session_url', 'devin_status', 'devin_status_detail', 'demo_url', 'repo_url', 'pr_url',
-  'acus_consumed', 'prior_acus', 'notes', 'error', 'last_polled_at']);
+  'acus_consumed', 'prior_acus', 'notes', 'error', 'last_polled_at', 'screenshot_url', 'build_started_at', 'build_finished_at']);
 
 function parseAccount(r) {
   if (!r) return null;
@@ -40,6 +40,7 @@ async function updateAccount(id, fields) {
 const deleteAccount = async (id) => {
   await db.run('DELETE FROM candidates WHERE account_id = ?', [id]);
   await db.run('DELETE FROM events WHERE account_id = ?', [id]);
+  await db.run('DELETE FROM screenshots WHERE account_id = ?', [id]);
   await db.run('DELETE FROM accounts WHERE id = ?', [id]);
 };
 
@@ -64,4 +65,14 @@ async function replaceFetchedCandidates(accountId, cands) {
 const listCandidates = async (accountId) => (await db.all('SELECT * FROM candidates WHERE account_id = ? ORDER BY recommended DESC, score DESC, id ASC', [accountId])).map(parseCandidate);
 const getCandidate = async (accountId, cid) => parseCandidate(await db.get('SELECT * FROM candidates WHERE account_id = ? AND id = ?', [accountId, cid]));
 
-module.exports = { createAccount, getAccount, listAccounts, updateAccount, deleteAccount, addEvent, listEvents, insertCandidates, replaceFetchedCandidates, listCandidates, getCandidate };
+// Demo screenshots live in their own table so account listings and polling don't load the image.
+const getScreenshot = async (id) => {
+  const r = await db.get('SELECT image FROM screenshots WHERE account_id = ?', [id]);
+  return r ? Buffer.from(r.image, 'base64') : null;
+};
+const saveScreenshot = (id, buf) => db.run(
+  'INSERT INTO screenshots (account_id, image, created_at) VALUES (?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET image = excluded.image, created_at = excluded.created_at',
+  [id, buf.toString('base64'), now()]);
+const deleteScreenshot = (id) => db.run('DELETE FROM screenshots WHERE account_id = ?', [id]);
+
+module.exports = { getScreenshot, saveScreenshot, deleteScreenshot, createAccount, getAccount, listAccounts, updateAccount, deleteAccount, addEvent, listEvents, insertCandidates, replaceFetchedCandidates, listCandidates, getCandidate };
