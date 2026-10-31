@@ -214,11 +214,26 @@ app.post('/accounts/:id/reopen', wrap(async (req, res) => {
   res.redirect(303, `/accounts/${a.id}`);
 }));
 
-// Two-step build: prepare issues a short-lived token bound to the account, ACU cap and brief;
-// confirm requires that token plus an explicit acknowledgement.
-const buildTokens = new Map();
+// Two-step build: prepare issues a short-lived signed token bound to the account, ACU cap and brief;
+// confirm requires that token plus an explicit acknowledgement. Tokens are HMAC-signed (not held in memory)
+// so they survive restarts, redeploys and free-tier sleep; single use is enforced by the account status.
 const briefHash = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const parseAcu = (v) => { const n = parseInt(v, 10); return Number.isInteger(n) && n >= 1 && n <= config.devin.maxAcu ? n : null; };
+const TOKEN_TTL_MS = 30 * 60000;
+const tokenKey = crypto.createHash('sha256').update(`p5k-build|${process.env.BUILD_TOKEN_SECRET || ''}|${config.ownerPassword || ''}|${process.env.DATABASE_URL || ''}`).digest();
+const signBuild = (payload) => {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${body}.${crypto.createHmac('sha256', tokenKey).update(body).digest('base64url')}`;
+};
+function readBuild(token) {
+  const [body, sig] = String(token || '').split('.');
+  if (!body || !sig) return null;
+  const want = crypto.createHmac('sha256', tokenKey).update(body).digest();
+  const got = Buffer.from(sig, 'base64url');
+  if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return null;
+  try { return JSON.parse(Buffer.from(body, 'base64url').toString()); } catch { return null; }
+}
+const usedTokens = new Set();
 
 app.post('/accounts/:id/build/prepare', wrap(async (req, res) => {
   const a = await loadAccount(req, res);
@@ -226,8 +241,7 @@ app.post('/accounts/:id/build/prepare', wrap(async (req, res) => {
   if (a.status !== 'brief_ready' || !devin.configured()) return res.redirect(303, `/accounts/${a.id}`);
   const acu = parseAcu(req.body.acu);
   if (!acu) return send(res.status(400), views.errorPage(`ACU cap must be a whole number between 1 and ${config.devin.maxAcu}.`), { title: 'Invalid ACU cap' });
-  const token = crypto.randomBytes(24).toString('base64url');
-  buildTokens.set(token, { id: a.id, acu, hash: briefHash(a.brief), exp: Date.now() + 10 * 60000 });
+  const token = signBuild({ id: a.id, acu, hash: briefHash(a.brief), exp: Date.now() + TOKEN_TTL_MS, n: crypto.randomBytes(9).toString('base64url') });
   send(res, views.buildConfirmPage({ a, acu, token }), { title: 'Confirm build' });
 }));
 
@@ -235,13 +249,18 @@ const buildsInFlight = new Set();
 app.post('/accounts/:id/build/confirm', wrap(async (req, res) => {
   const a = await loadAccount(req, res);
   if (!a) return;
-  const t = buildTokens.get(String(req.body.token || ''));
+  const t = readBuild(req.body.token);
   const acu = parseAcu(req.body.acu);
-  const valid = t && t.id === a.id && t.exp > Date.now() && t.acu === acu && t.hash === briefHash(a.brief) && req.body.ack === 'yes';
-  if (!valid || a.status !== 'brief_ready' || a.devin_session_id || !devin.configured() || buildsInFlight.has(a.id)) {
-    return send(res.status(400), views.errorPage('Build not started: the confirmation was missing, expired, or the brief changed. Nothing was spent.'), { title: 'Not started' });
-  }
-  buildTokens.delete(req.body.token);
+  const notStarted = (why) => send(res.status(400), views.errorPage(`Build not started: ${why} Nothing was spent.`, { backHref: `/accounts/${a.id}`, backLabel: 'Back to this account' }), { title: 'Not started' });
+  if (a.status === 'building' || a.devin_session_id || buildsInFlight.has(a.id)) return notStarted('a Devin build for this account has already started.');
+  if (a.status !== 'brief_ready') return notStarted('this account has no approved brief.');
+  if (!devin.configured()) return notStarted('the Devin API is not connected.');
+  if (!t || String(t.id) !== String(a.id) || usedTokens.has(req.body.token)) return notStarted('the confirmation link is invalid or was already used. Click "Build with Devin" again.');
+  if (t.exp <= Date.now()) return notStarted('the confirmation expired (30 minutes). Click "Build with Devin" again.');
+  if (t.acu !== acu) return notStarted('the ACU cap does not match what you confirmed.');
+  if (t.hash !== briefHash(a.brief)) return notStarted('the brief changed after you prepared the build. Review it and click "Build with Devin" again.');
+  if (req.body.ack !== 'yes') return notStarted('the acknowledgement box was not ticked.');
+  usedTokens.add(req.body.token);
   const missing = brief.missingClauses(a.brief);
   if (missing.length) return send(res.status(400), views.errorPage('Build not started: the brief is missing required guardrails.'), { title: 'Not started' });
   buildsInFlight.add(a.id);
