@@ -204,7 +204,7 @@ function settingsPage({ devin, research, llm, dbDialect, contact, acuRate, repor
   return html`<section class="card"><h1>Settings</h1><p class="muted small">Keys are read from server-side environment variables and are never displayed.</p>
 <h2>Devin API</h2><p>${yes(devin.connected)} ${devin.principal ? html`<span class="muted small">as ${devin.principal}</span>` : ''}</p>${devin.reason ? html`<p class="muted">${devin.reason}</p>` : ''}
 <form method="post" action="/settings/test"><button>Test connection</button></form>
-<p class="small muted">Set DEVIN_API_KEY and DEVIN_ORG_ID on the server to enable automatic builds.</p>
+${devin.connected ? html`<p class="small muted">Approved briefs show "Build with Devin"; each build asks you to confirm its ACU limit.</p>` : html`<p class="small muted">Set DEVIN_API_KEY and DEVIN_ORG_ID on the server to enable automatic builds.</p>`}
 <h2>Research provider</h2><p>${research.available ? html`<span class="badge ok">available</span> ${research.label}` : html`<span class="badge off">unavailable</span> Set TAVILY_API_KEY, or RESEARCH_PROVIDER=public, to enable automated research.`}</p>
 <h2>Model (optional)</h2><p>${llm ? html`<span class="badge ok">configured</span> used to summarize fetched sources; every excerpt is verified against the page` : html`<span class="badge off">not configured</span> candidates are extracted heuristically`}</p>
 <h2>Prospect PDF</h2><p>Cost is ACUs used × $${Number(acuRate).toFixed(2)} per ACU (ACU_PRICE_USD). Contact line: ${reportContact ? 'set' : 'not set (REPORT_CONTACT)'}.</p>
