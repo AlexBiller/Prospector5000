@@ -23,7 +23,7 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${res.locals.nonce}'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Cache-Control', 'no-store');
   if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
@@ -40,7 +40,10 @@ app.use(express.json({ limit: '100kb' }));
 // Same-origin check for state-changing requests (on top of SameSite=Strict cookies).
 app.use((req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  const src = req.get('origin') || req.get('referer');
+  const site = req.get('sec-fetch-site');
+  if (site) return site === 'same-origin' ? next() : res.status(403).send('Cross-origin request blocked');
+  const origin = req.get('origin');
+  const src = origin && origin !== 'null' ? origin : req.get('referer');
   try {
     if (src && new URL(src).host === req.get('host')) return next();
   } catch { /* fall through */ }

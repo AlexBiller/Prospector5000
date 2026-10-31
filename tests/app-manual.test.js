@@ -61,6 +61,11 @@ test('manual flow end to end, auth, approval gate, injection, restart persistenc
     // Cross-origin POST blocked
     const xo = await c.req('POST', '/accounts', { company: 'x' }, { origin: 'https://evil.example' });
     assert.strictEqual(xo.status, 403);
+    const xs = await c.req('POST', '/accounts', { company: 'x' }, { origin: 'null', 'sec-fetch-site': 'cross-site' });
+    assert.strictEqual(xs.status, 403);
+    // Browser form POST: Origin may be "null"; Sec-Fetch-Site decides
+    const bf = await c.req('POST', '/accounts', { company: 'Browser Form Co' }, { origin: 'null', 'sec-fetch-site': 'same-origin' });
+    assert.strictEqual(bf.status, 303);
 
     const created = await c.post('/accounts', { company: 'Acme Test Co Zz' });
     const id = created.location.split('/').pop();
