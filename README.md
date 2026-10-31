@@ -1,4 +1,4 @@
-# Prospect-to-Demo
+# Prospector5000
 
 A private web app that turns account research into a tailored, Devin-built product demo you can send to a prospect.
 

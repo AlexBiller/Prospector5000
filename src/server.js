@@ -387,7 +387,7 @@ async function main() {
     if (a.research_state === 'running') await store.updateAccount(a.id, { research_state: 'failed', research_message: 'Research was interrupted by a restart. Run it again or add findings manually.' });
   }
   if (!config.ownerPassword) console.warn('[warn] OWNER_PASSWORD is not set: nobody can sign in.');
-  app.listen(config.port, () => console.log(`Prospect-to-Demo listening on :${config.port} (${db.dialect})`));
+  app.listen(config.port, () => console.log(`Prospector5000 listening on :${config.port} (${db.dialect})`));
   setInterval(() => pollAll().catch((e) => console.error(`[poll] ${devin.redact(e.message)}`)), config.devin.pollSeconds * 1000).unref();
 }
 

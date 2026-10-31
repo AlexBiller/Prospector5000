@@ -19,8 +19,8 @@ const day = (iso) => (iso ? String(iso).slice(0, 10) : '');
 function layout({ title, body, nonce, authed = true, refresh }) {
   return html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="same-origin">${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
-<title>${title} · Prospect-to-Demo</title>${authed ? html`<link rel="stylesheet" href="/static/style.css">` : html`<style nonce="${nonce}">${raw(CSS)}</style>`}</head>
-<body><header class="top"><a class="brand" href="/">Prospect-to-Demo</a>${authed ? html`<nav><a href="/">Dashboard</a><a href="/settings">Settings</a>
+<title>${title} · Prospector5000</title>${authed ? html`<link rel="stylesheet" href="/static/style.css">` : html`<style nonce="${nonce}">${raw(CSS)}</style>`}</head>
+<body><header class="top"><a class="brand" href="/">Prospector5000</a>${authed ? html`<nav><a href="/">Dashboard</a><a href="/settings">Settings</a>
 <form method="post" action="/logout" class="inline"><button class="link">Sign out</button></form></nav>` : ''}</header>
 <main>${body}</main>${authed ? html`<script src="/static/app.js"></script>` : ''}</body></html>`.toString();
 }
