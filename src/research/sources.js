@@ -100,26 +100,54 @@ async function sitemapPosts(domain) {
     })).filter((x) => x.loc);
   };
   let entries = [];
-  try { entries = await locs(`https://${domain}/sitemap.xml`); } catch { return []; }
+  const roots = [`https://${domain}/sitemap.xml`, `https://www.${domain}/sitemap.xml`];
+  try {
+    const robots = await fetchText(`https://${domain}/robots.txt`, { timeoutMs: 6000, maxBytes: 200000 });
+    for (const m of robots.text.matchAll(/^\s*sitemap:\s*(\S+)/gim)) roots.unshift(m[1]);
+  } catch { /* no robots.txt */ }
+  for (const u of [...new Set(roots)].slice(0, 4)) {
+    try { entries = await locs(u); } catch { /* try next */ }
+    if (entries.length) break;
+  }
   const subs = entries.filter((e) => e.isIndex || /\.xml(\.gz)?$/i.test(e.loc));
   if (subs.length) {
-    const pick = subs.filter((e) => /blog|news|press|post|article|resource/i.test(e.loc)).slice(0, 3);
+    const unlocalized = (e) => !/\/[a-z]{2}-[a-z]{2,4}\//i.test(e.loc);
+    const pick = subs.filter((e) => /blog|news|press|post|article|resource/i.test(e.loc)).sort((a, b) => unlocalized(b) - unlocalized(a)).slice(0, 3);
     const more = await mapLimit(pick.length ? pick : subs.slice(0, 2), 3, (e) => locs(e.loc));
     entries = entries.concat(more.flat());
   }
+  const path = (u) => { try { return new URL(u, `https://${domain}`).pathname; } catch { return ''; } };
   return entries
-    .filter((e) => !/\.xml(\.gz)?$/i.test(e.loc) && POST_PATH.test(new URL(e.loc, `https://${domain}`).pathname) && onDomain(e.loc, domain))
+    .filter((e) => !/\.xml(\.gz)?$/i.test(e.loc) && onDomain(e.loc, domain) && POST_PATH.test(path(e.loc))
+      && !/^\/[a-z]{2}(-[a-z]{2,4})?\//i.test(path(e.loc).replace(/^\/(en|en-us)\//i, '/'))
+      && !/\/(topic|topics|tag|tags|category|categories|author|authors|page)\//i.test(path(e.loc)))
     .sort((a, b) => String(b.lastmod || '').localeCompare(String(a.lastmod || '')))
     .slice(0, 8)
     .map((e) => ({ link: e.loc, title: null, date: null, description: '', feed: 'sitemap' }));
 }
 
+// Last resort: post links listed on the company's own blog/newsroom index pages.
+async function indexPagePosts(domain) {
+  const pages = await mapLimit(['/blog', '/news', '/newsroom', '/press'], 4, (p) => fetchText(`https://${domain}${p}`, { timeoutMs: 8000, maxBytes: 3000000 }));
+  const links = [];
+  for (const pg of pages) {
+    for (const m of pg.text.matchAll(/<a\b[^>]*href=["']([^"'#]+)["']/gi)) {
+      let u;
+      try { u = new URL(X.decodeEntities(m[1]), pg.url); } catch { continue; }
+      if (onDomain(u.href, domain) && POST_PATH.test(u.pathname) && !/\/(topic|topics|tag|tags|category|categories|author|authors|page)\//i.test(u.pathname)
+        && u.pathname.split('/').filter(Boolean).length >= 2) links.push(`${u.origin}${u.pathname}`);
+    }
+  }
+  return [...new Set(links)].slice(0, 6).map((link) => ({ link, title: null, date: null, description: '', feed: 'index' }));
+}
+
 async function companyFeeds(account, log) {
-  const d = account.domain;
-  if (!d) return [];
+  if (!account.domain) return [];
+  let d = account.domain;
   const feedUrls = new Set();
   try {
     const home = await fetchText(`https://${d}/`, { timeoutMs: 8000, maxBytes: 800000 });
+    d = new URL(home.url).hostname.replace(/^www\./, '');
     for (const m of home.text.matchAll(/<link\b[^>]*type=["']application\/(?:rss|atom)\+xml["'][^>]*>/gi)) {
       const href = m[0].match(/href=["']([^"']+)["']/i);
       if (href) feedUrls.add(new URL(X.decodeEntities(href[1]), home.url).href);
@@ -130,7 +158,9 @@ async function companyFeeds(account, log) {
   [`https://blog.${d}/feed`, `https://blog.${d}/rss.xml`, `https://engineering.${d}/feed`].forEach((u) => feedUrls.add(u));
 
   const items = [];
-  const tried = await mapLimit([...feedUrls].slice(0, 14), 5, async (u) => {
+  const www = `www.${d}`;
+  [...feedUrls].filter((u) => hostOf(u) === d).forEach((u) => feedUrls.add(u.replace(`//${d}/`, `//${www}/`)));
+  const tried = await mapLimit([...feedUrls].slice(0, 24), 6, async (u) => {
     const r = await fetchText(u, { timeoutMs: 7000, maxBytes: 2000000 });
     if (!/<(rss|feed|rdf)\b/i.test(r.text.slice(0, 2000))) return null;
     return parseFeed(r.text).map((it) => ({ ...it, feed: u }));
@@ -139,6 +169,9 @@ async function companyFeeds(account, log) {
   tried.flat().forEach((it) => { if (!seen.has(it.link)) { seen.add(it.link); items.push(it); } });
   if (!items.length) {
     for (const it of await sitemapPosts(d)) if (!seen.has(it.link)) { seen.add(it.link); items.push(it); }
+  }
+  if (!items.length) {
+    for (const it of await indexPagePosts(d)) if (!seen.has(it.link)) { seen.add(it.link); items.push(it); }
   }
   items.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   const top = items.slice(0, 5);
@@ -158,7 +191,8 @@ async function companyFeeds(account, log) {
 }
 
 /* ---------- open roles: Greenhouse, Lever, Ashby public job boards ---------- */
-const JOB_SIGNAL = /\b(ai|ml|machine learning|llm|genai|data|platform|infrastructure|staff|principal|founding|head of|lead|new product|growth|security|developer|api|mobile|payments?|automation)\b/i;
+const JOB_SIGNAL = /\b(ai|ml|machine learning|llm|genai|agents?|data platform|platform|infrastructure|api|developer|sdk|mobile|ios|android|payments?|automation|integrations?|founding|new product|software engineer|product engineer|product manager|forward deployed)\b/i;
+const BUILD_TEAM = /\b(engineering|product|research|ai|ml|data|design|platform)\b/i;
 
 async function jobBoards(account, log) {
   const root = (account.domain || '').split('.')[0];
@@ -180,18 +214,19 @@ async function jobBoards(account, log) {
         title: j.title, url: j.jobUrl, date: j.publishedAt, team: j.department || j.team || '', text: j.descriptionPlain || X.htmlToText(j.descriptionHtml || ''),
       }))],
     ];
-    for (const [name, fn] of attempts) {
-      try {
-        const list = await fn();
-        if (Array.isArray(list) && list.length) { jobs = list; board = `${name} (${slug})`; break; }
-      } catch { /* not on this board */ }
-    }
+    // A slug can exist on several boards (often a stale one); use the largest.
+    const found = await Promise.all(attempts.map(async ([name, fn]) => {
+      try { const list = await fn(); return Array.isArray(list) && list.length ? { name, list } : null; } catch { return null; }
+    }));
+    const best = found.filter(Boolean).sort((a, b) => b.list.length - a.list.length)[0];
+    if (best) { jobs = best.list; board = `${best.name} (${slug})`; }
     if (jobs) break;
   }
   if (!jobs) { log('Job postings: no public Greenhouse, Lever or Ashby board found.'); return []; }
   const byTeam = new Map();
   jobs.filter((j) => j.url && j.title)
-    .map((j) => ({ ...j, s: (JOB_SIGNAL.test(j.title) ? 2 : 0) + (JOB_SIGNAL.test(j.team) ? 1 : 0) }))
+    .map((j) => ({ ...j, s: (JOB_SIGNAL.test(j.title) ? 2 : 0) + (BUILD_TEAM.test(j.team) ? 2 : 0) + (JOB_SIGNAL.test(j.team) ? 1 : 0) }))
+    .filter((j) => j.s > 0)
     .sort((a, b) => b.s - a.s || String(b.date || '').localeCompare(String(a.date || '')))
     .forEach((j) => { if (!byTeam.has(j.team || j.title)) byTeam.set(j.team || j.title, j); });
   const picks = [...byTeam.values()].slice(0, 5);
