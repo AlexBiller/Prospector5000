@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: prospect-to-demo
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /login
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: RESEARCH_PROVIDER
+        value: public
+      - key: OWNER_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DEVIN_API_KEY
+        sync: false
+      - key: DEVIN_ORG_ID
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CONTACT_EMAIL
+        sync: false

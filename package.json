@@ -1,0 +1,20 @@
+{
+  "name": "prospect-to-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turn account research into a tailored, Devin-built product demo",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "OWNER_PASSWORD=dev node src/server.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.22.3",
+    "pg": "^8.23.1"
+  }
+}
