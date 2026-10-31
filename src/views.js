@@ -212,6 +212,6 @@ ${devin.connected ? html`<p class="small muted">Approved briefs show "Build with
 <h2>Contact for research user agent</h2><p>${contact ? 'set' : 'not set (CONTACT_EMAIL); SEC EDGAR may refuse requests without it'}</p></section>`;
 }
 
-function errorPage(msg) { return html`<section class="card"><h1>Something went wrong</h1><p>${msg}</p><p><a href="/">Back to dashboard</a></p></section>`; }
+function errorPage(msg, { backHref = '/', backLabel = 'Back to dashboard' } = {}) { return html`<section class="card"><h1>Something went wrong</h1><p>${msg}</p><p><a href="${backHref}">${backLabel}</a></p></section>`; }
 
 module.exports = { layout, loginPage, dashboard, accountPage, proposePage, buildConfirmPage, settingsPage, errorPage, STATUS };

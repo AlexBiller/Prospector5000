@@ -71,6 +71,12 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.strictEqual((await c.post(`/accounts/${id}/build/confirm`, { token, acu: '8', ack: 'yes' })).status, 400, 'tampered cap refused');
     assert.strictEqual(calls.filter((x) => x.url.includes('/sessions')).length, 0);
 
+    const forged = token.replace(/\.[^.]+$/, '.AAAA');
+    assert.strictEqual((await c.post(`/accounts/${id}/build/confirm`, { token: forged, acu: '7', ack: 'yes' })).status, 400, 'forged token refused');
+    const [body, sig] = token.split('.');
+    const bumped = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url')), acu: 8 })).toString('base64url');
+    assert.strictEqual((await c.post(`/accounts/${id}/build/confirm`, { token: `${bumped}.${sig}`, acu: '8', ack: 'yes' })).status, 400, 'edited token payload refused');
+    assert.strictEqual(calls.filter((x) => x.url.includes('/sessions')).length, 0);
     const ok = await c.post(`/accounts/${id}/build/confirm`, { token, acu: '7', ack: 'yes' });
     assert.strictEqual(ok.status, 303);
     const create = calls.find((x) => x.method === 'POST' && x.url.endsWith('/sessions'));
