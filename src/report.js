@@ -35,7 +35,7 @@ function buildReportModel(a, candidates, { rate = config.report.acuPriceUsd, con
   pool.forEach(({ cats }) => cats.slice(0, 2).forEach((k) => { if (!areas.some((x) => x.key === k.key)) areas.push(k); }));
   const acus = a.acus_consumed != null && Number.isFinite(Number(a.acus_consumed)) ? Number(a.acus_consumed) : null;
   const name = a.name || a.query_name;
-  const areaNames = areas.slice(0, 3).map((x) => x.label.toLowerCase());
+  const areaNames = areas.slice(0, 3).map((x) => x.label.toLowerCase().replace(/\bai\b/g, 'AI'));
   const summary = opportunities.length
     ? `We reviewed public, dated sources about ${name} and found ${opportunities.length} active engineering ${opportunities.length === 1 ? 'priority' : 'priorities'} where Devin could make an immediate impact${areaNames.length ? `, especially in ${areaNames.length > 1 ? `${areaNames.slice(0, -1).join(', ')} and ${areaNames.slice(-1)}` : areaNames[0]}` : ''}. To make it concrete, Devin built a working alpha demo.`
     : `We prepared a working alpha demo to show how Devin could support ${name}'s engineering team.`;
