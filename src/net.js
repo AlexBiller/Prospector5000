@@ -3,7 +3,7 @@ const dns = require('dns').promises;
 const net = require('net');
 const config = require('./config');
 
-const UA = () => `Prospector5000/1.0 (+https://github.com/AlexBiller/prospect-to-demo${config.contactEmail ? `; ${config.contactEmail}` : ''})`;
+const UA = () => `Prospector5000/1.0 (+https://github.com/AlexBiller/prospector5000${config.contactEmail ? `; ${config.contactEmail}` : ''})`;
 
 function isPrivateIp(ip) {
   if (net.isIPv4(ip)) {

@@ -72,7 +72,7 @@ async function createSession({ prompt, maxAcu, title }) {
     title,
     max_acu_limit: maxAcu,
     structured_output_schema: OUTPUT_SCHEMA,
-    tags: ['prospect-to-demo'],
+    tags: ['prospector5000'],
   });
 }
 

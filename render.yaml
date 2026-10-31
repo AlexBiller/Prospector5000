@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: prospect-to-demo
+    name: prospector5000
     runtime: node
     plan: free
     region: oregon

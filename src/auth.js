@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const config = require('./config');
 const db = require('./db');
 
-const COOKIE = '__Host-ptd_sid';
+const COOKIE = '__Host-p5k_sid';
 const WINDOW_MS = 15 * 60 * 1000;
 const PER_IP_LIMIT = 5;
 const GLOBAL_LIMIT = 30;
