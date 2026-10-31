@@ -288,7 +288,7 @@ async function pollAccount(a) {
     const fields = {
       devin_status: info.devin_status, devin_status_detail: info.devin_status_detail, last_polled_at: new Date().toISOString(),
       ...(info.devin_session_url ? { devin_session_url: info.devin_session_url } : {}),
-      ...(info.acus_consumed != null ? { acus_consumed: info.acus_consumed } : {}),
+      ...(info.acus_consumed != null ? { acus_consumed: Math.round(((Number(a.prior_acus) || 0) + info.acus_consumed) * 100) / 100 } : {}),
       ...(info.pr_url ? { pr_url: info.pr_url } : {}),
       ...(info.demo_url ? { demo_url: info.demo_url } : {}),
       ...(info.repo_url ? { repo_url: info.repo_url } : {}),
@@ -300,7 +300,9 @@ async function pollAccount(a) {
     } else if (info.finished) {
       fields.error = 'The Devin session finished without reporting both demo_url and repo_url. Check the session and paste the links manually.';
     } else if (info.failed) {
-      fields.error = `The Devin session stopped (${info.devin_status}${info.devin_status_detail ? `: ${info.devin_status_detail}` : ''}). Check the session; you can paste links manually.`;
+      fields.error = `The Devin session stopped (${info.devin_status}${info.devin_status_detail ? `: ${info.devin_status_detail}` : ''}). Continue it, start over, or paste links manually.`;
+    } else {
+      fields.error = null;
     }
     await store.updateAccount(a.id, fields);
   } catch (e) {
@@ -312,6 +314,40 @@ app.post('/accounts/:id/poll', wrap(async (req, res) => {
   const a = await loadAccount(req, res);
   if (!a) return;
   await pollAccount(a);
+  res.redirect(303, `/accounts/${a.id}`);
+}));
+
+// A build is "stopped" when its session is suspended, errored, or exited without both links.
+const isStopped = (a) => a.status === 'building' && !!a.devin_session_id && ['suspended', 'error', 'exit'].includes(a.devin_status);
+const CONTINUE_MESSAGE = 'Please continue where you left off and finish the build described in the original brief. '
+  + 'Keep every guardrail from the brief. When done, report demo_url and repo_url in the structured output.';
+
+app.post('/accounts/:id/build/continue', wrap(async (req, res) => {
+  const a = await loadAccount(req, res);
+  if (!a) return;
+  if (!isStopped(a) || !devin.configured()) return res.redirect(303, `/accounts/${a.id}`);
+  if (req.body.ack !== 'yes') return send(res.status(400), views.errorPage('Not continued: tick the box to confirm the session may keep spending ACUs. Nothing was spent.', { backHref: `/accounts/${a.id}`, backLabel: 'Back to this account' }), { title: 'Not continued' });
+  try {
+    const s = await devin.sendMessage(a.devin_session_id, CONTINUE_MESSAGE);
+    await store.updateAccount(a.id, { devin_status: (s && s.status) || 'resuming', devin_status_detail: null, error: null });
+    await store.addEvent(a.id, `Asked Devin session ${a.devin_session_id} to continue (same ACU cap of ${a.acu_limit}).`);
+  } catch (e) {
+    await store.updateAccount(a.id, { error: `Could not continue the Devin session: ${devin.redact(e.message)}` });
+    await store.addEvent(a.id, `Continue failed: ${devin.redact(e.message)}`);
+  }
+  res.redirect(303, `/accounts/${a.id}`);
+}));
+
+app.post('/accounts/:id/build/restart', wrap(async (req, res) => {
+  const a = await loadAccount(req, res);
+  if (!a) return;
+  if (!isStopped(a)) return res.redirect(303, `/accounts/${a.id}`);
+  const spent = Number(a.acus_consumed) || 0;
+  await store.updateAccount(a.id, {
+    status: 'brief_ready', prior_acus: spent, devin_session_id: null, devin_session_url: null, devin_status: null,
+    devin_status_detail: null, pr_url: null, error: null, last_polled_at: null,
+  });
+  await store.addEvent(a.id, `Set aside stopped Devin session ${a.devin_session_id}${a.devin_session_url ? ` (${a.devin_session_url})` : ''} after ${spent.toFixed(2)} ACUs. Ready for a new build.`);
   res.redirect(303, `/accounts/${a.id}`);
 }));
 

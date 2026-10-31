@@ -77,6 +77,8 @@ async function createSession({ prompt, maxAcu, title }) {
 }
 
 const getSession = (devinId) => call('GET', orgPath(`/sessions/${encodeURIComponent(devinId)}`));
+// Resumes a suspended session (POST /v3/organizations/{org_id}/sessions/{devin_id}/messages).
+const sendMessage = (devinId, message) => call('POST', orgPath(`/sessions/${encodeURIComponent(devinId)}/messages`), { message });
 
 const FAILED_DETAILS = new Set(['usage_limit_exceeded', 'out_of_credits', 'out_of_quota', 'no_quota_allocation', 'payment_declined',
   'org_usage_limit_exceeded', 'user_usage_limit_exceeded', 'total_session_limit_exceeded', 'contract_expired', 'error']);
@@ -110,4 +112,4 @@ function interpretSession(s) {
   };
 }
 
-module.exports = { configured, testConnection, createSession, getSession, interpretSession, redact, DevinError, OUTPUT_SCHEMA };
+module.exports = { configured, testConnection, createSession, getSession, sendMessage, interpretSession, redact, DevinError, OUTPUT_SCHEMA };
