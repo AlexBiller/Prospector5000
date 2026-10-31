@@ -504,7 +504,7 @@ app.get('/api/accounts/:id/build', wrap(async (req, res) => {
   const step = await currentStep(a);
   res.json({
     status: a.status, devin_status: a.devin_status || null, devin_status_detail: a.devin_status_detail || null,
-    started_at: a.build_started_at || null, acus_consumed: a.acus_consumed ?? null,
+    started_at: a.build_started_at || null, acus_consumed: a.acus_consumed ?? null, last_checked: a.last_polled_at || null,
     step: (step && step.text) || null, step_at: (step && step.at) || null,
   });
 }));

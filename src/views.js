@@ -168,7 +168,7 @@ ${manualLinksForm(a, false)}</section>`);
 ${live && a.build_started_at ? html`<dt>Running for</dt><dd><span class="elapsed" data-elapsed-since="${a.build_started_at}">${formatElapsed(a.build_started_at)}</span></dd>` : ''}
 ${live ? html`<dt>Current step</dt><dd class="step" data-build-step>${(step && step.text) || 'Waiting for Devin\'s first update…'}</dd>` : ''}
 <dt>ACU cap</dt><dd>${a.acu_limit}</dd><dt>ACUs consumed</dt><dd data-build-acus>${a.acus_consumed != null ? Number(a.acus_consumed).toFixed(2) : '-'}${Number(a.prior_acus) > 0 ? ` (incl. ${Number(a.prior_acus).toFixed(2)} from earlier attempts)` : ''}</dd>
-<dt>Pull request</dt><dd>${ext(a.pr_url)}</dd><dt>Last checked</dt><dd>${a.last_polled_at || '-'}</dd></dl>
+<dt>Pull request</dt><dd>${ext(a.pr_url)}</dd><dt>Last checked</dt><dd data-build-checked>${a.last_polled_at || '-'}</dd></dl>
 ${stoppedActions(a)}
 ${live ? html`<noscript><p class="small muted">Reload the page or click Check now for updates.</p></noscript><form method="post" action="/accounts/${a.id}/poll"><button>Check now</button></form>${manualLinksForm(a, true)}` : ''}</section>`);
   }

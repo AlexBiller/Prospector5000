@@ -73,6 +73,7 @@ function initLive() {
           const set = (sel, v) => { const el = build.querySelector(sel); if (el && v) el.textContent = v; };
           set('[data-build-status]', b.devin_status && `${b.devin_status}${b.devin_status_detail ? ` (${b.devin_status_detail})` : ''}`);
           set('[data-build-step]', b.step);
+          set('[data-build-checked]', b.last_checked);
           if (b.acus_consumed != null) set('[data-build-acus]', Number(b.acus_consumed).toFixed(2));
           const since = build.querySelector('[data-elapsed-since]');
           if (since && b.started_at) since.dataset.elapsedSince = b.started_at;
