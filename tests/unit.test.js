@@ -138,7 +138,7 @@ test('research reports per-source progress, and the account page shows a progres
   const R = require('../src/research');
   const saved = { provider: config.research.provider, fns: { ...S } };
   config.research.provider = 'public';
-  const names = ['gdeltNews', 'hnLaunches', 'companyFeeds', 'jobBoards', 'securityStudies', 'cisaKev', 'nvdCves', 'secFilings'];
+  const names = ['gdeltNews', 'hnLaunches', 'companyFeeds', 'jobBoards', 'securityStudies', 'cisaKev', 'nvdCves', 'secFilings', 'customerStories'];
   names.forEach((n, i) => { S[n] = async () => { await new Promise((r) => setTimeout(r, 5 * (i + 1))); if (n === 'gdeltNews') throw new Error('rate limited'); return []; }; });
   const seen = [];
   try {
@@ -147,8 +147,8 @@ test('research reports per-source progress, and the account page shows a progres
     config.research.provider = saved.provider;
     Object.assign(S, saved.fns);
   }
-  assert.deepStrictEqual(seen.map((p) => p.done), [0, 1, 2, 3, 4, 5, 6, 7, 8, 8]);
-  assert.ok(seen.every((p) => p.total === 9));
+  assert.deepStrictEqual(seen.map((p) => p.done), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9]);
+  assert.ok(seen.every((p) => p.total === 10));
   assert.match(seen[0].step, /^Searching news, Hacker News launches/);
   assert.match(seen.at(-1).step, /^Analyzing 0 sources/);
   const V = require('../src/views');
@@ -207,6 +207,35 @@ test('security write-ups and CISA KEV parsing keep only this company', () => {
   ] }, { name: 'Acme Inc.', domain: 'acme.com' });
   assert.strictEqual(kev.length, 1);
   assert.match(kev[0].text, /exploited in the wild.*ransomware/);
+});
+
+test('industry proof points: retail maps to a Cognition retail story; Gap is not "air gap"', async () => {
+  const S = require('../src/research/sources');
+  const I = require('../src/research/industry');
+  assert.strictEqual(S.namedIn('Mind the (air) gap: GoldenJackal gooses guardrails', 'Gap Inc.'), false);
+  assert.strictEqual(S.namedIn('Gap Inc. data breach exposed records', 'Gap Inc.'), true);
+  const ind = I.industryOf('American multinational clothing and accessories retailer');
+  assert.strictEqual(ind.key, 'retail');
+  assert.strictEqual(I.industryOf('', '5651').key, 'retail');
+  assert.strictEqual(I.storiesFor(ind)[0].slug, 'rohlikgroup');
+
+  const { defaultProposal } = require('../src/brief');
+  const gap = { name: 'Gap Inc.', description: 'American multinational clothing and accessories retailer' };
+  const p = defaultProposal(gap, { title: 'Gap Inc. annual report', summary: 'Optimizing our technology offering, with an AI strategy focused on improving predictability, reducing friction, and unlocking greater productivity across the enterprise.', excerpt: '', source_type: 'filing', source_date: '2026-03-27' });
+  assert.match(p.concept, /Proof point: Rohlik Group, a Cognition customer in retail/);
+  const story = I.STORIES.find((s) => s.slug === 'rohlikgroup');
+  const fromStory = defaultProposal(gap, { title: story.headline, summary: 'Rohlik runs as a technology company.', excerpt: '', source_type: 'case_study', source_url: story.url });
+  assert.match(fromStory.concept, /Cognition's Rohlik Group customer story/);
+
+  const C = require('../src/research/candidates');
+  const cs = C.fromSource({ type: 'case_study', title: story.headline, url: story.url, text: 'Rohlik Group doubled its engineering throughput with Devin across warehouse automation and AI shopping software. Nearly all of that software is built in-house by its engineering teams.' }, 'Gap Inc.');
+  const ranked = C.rank([cs]);
+  assert.strictEqual(ranked[0].recommended, false);
+  assert.match(C.evidenceMessage(ranked), /only Cognition customer stories/);
+  const R = require('../src/report');
+  const model = R.buildReportModel({ ...gap, id: 1 }, [{ ...ranked[0], id: 5 }]);
+  assert.strictEqual(model.opportunities.length, 0);
+  assert.deepStrictEqual([model.proof.company, model.proof.industry], ['Rohlik Group', 'retail']);
 });
 
 test('build step text and elapsed timer formatting', () => {

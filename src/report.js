@@ -5,6 +5,7 @@ const PDFDocument = require('pdfkit');
 const config = require('./config');
 const O = require('./research/opportunity');
 const X = require('./research/extract');
+const I = require('./research/industry');
 
 const C = { bg: '#f7f6f5', ink: '#191919', muted: '#626870', accent: '#2200ff', gold: '#b9a07a', rule: '#dcdad6' };
 const CP1252 = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
@@ -29,7 +30,7 @@ function usable(c) {
 
 function buildReportModel(a, candidates, { contact = config.report.contact, now = new Date(), screenshot = null } = {}) {
   const approved = candidates.find((c) => c.id === a.approved_candidate_id);
-  const pool = candidates.filter(usable).map((c) => ({ c, cats: O.forCandidate(c) }))
+  const pool = candidates.filter((c) => usable(c) && c.source_type !== 'case_study').map((c) => ({ c, cats: O.forCandidate(c) }))
     .sort((x, y) => (x.c.id === a.approved_candidate_id ? -1 : 0) - (y.c.id === a.approved_candidate_id ? -1 : 0)
       || (x.c.flags && x.c.flags.stale ? 1 : 0) - (y.c.flags && y.c.flags.stale ? 1 : 0)
       || O.strength(y.cats) - O.strength(x.cats) || (y.c.score || 0) - (x.c.score || 0));
@@ -56,6 +57,12 @@ function buildReportModel(a, candidates, { contact = config.report.contact, now 
     buildTime: a.demo_url ? formatDuration(a.build_started_at, a.build_finished_at) : null,
     screenshot: a.demo_url && screenshot ? screenshot : null,
     contact: contact || null,
+    proof: (() => {
+      const ind = I.industryOf(a.description);
+      const fromResearch = candidates.filter(usable).map((c) => c.source_type === 'case_study' && I.storyByUrl(c.source_url)).find(Boolean);
+      const s = fromResearch || I.storiesFor(ind, areas[0] && areas[0].key)[0];
+      return s ? { company: s.company, headline: s.headline, url: s.url, industry: s.industries.includes(ind && ind.key) ? ind.label : null } : null;
+    })(),
   };
 }
 
@@ -141,6 +148,13 @@ function renderPdf(model) {
     ensure(70);
     doc.font('Helvetica').fontSize(30).fillColor(C.ink).text(pdfText(model.buildTime));
     body('From starting the Devin session to a live, deployed demo. Devin planned, built, tested and deployed it autonomously, end to end.', { size: 10.5, color: C.muted });
+  }
+
+  if (model.proof) {
+    label('Customer proof point');
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(C.ink).text(pdfText(`${model.proof.company}${model.proof.industry ? ` (${model.proof.industry})` : ''}: ${model.proof.headline}`), { lineGap: 1 });
+    doc.moveDown(0.15);
+    link(model.proof.url.replace(/^https:\/\//, ''), model.proof.url);
   }
 
   label('About Devin');

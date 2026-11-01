@@ -5,3 +5,4 @@ data/
 *.db
 *.db-*
 !.env.example
+.scratch/

@@ -3,6 +3,7 @@ const { shorten, splitSentences, looksLikeInstructions } = require('./research/e
 const { TYPE_LABEL } = require('./research/candidates');
 const O = require('./research/opportunity');
 const W = require('./research/wow');
+const I = require('./research/industry');
 
 const DEMO_LABEL = 'Unofficial demo built with Devin - synthetic data';
 const MAX_INTERACTIONS = 5;
@@ -98,12 +99,21 @@ function defaultProposal(account, cand) {
   const securityLed = cand.source_type === 'study' || cand.source_type === 'security';
   const real = wow.migration ? REAL_MIGRATION(account.name, wow.migration.from, wow.migration.to)
     : securityLed ? REAL_SECURITY(account.name, topic) : null;
-  const play = real ? { concept: () => real.concept, interactions: real.interactions } : top && PLAYS[top.key];
+  const industry = I.industryOf(account.description);
+  const caseStory = cand.source_type === 'case_study' ? I.storyByUrl(cand.source_url) : null;
+  const catKey = wow.migration ? 'migration' : securityLed ? 'security' : top && top.key;
+  const proof = caseStory || I.storiesFor(industry, catKey)[0];
+  const fromStory = caseStory && PLAYS[caseStory.categories[0]] && {
+    concept: () => `Devin builds a working slice of the kind of project in Cognition's ${caseStory.company} customer story ("${caseStory.headline}"), adapted to ${account.name}${industry ? ` as a ${industry.label} company` : ''}.`,
+    interactions: PLAYS[caseStory.categories[0]].interactions,
+  };
+  const play = real ? { concept: () => real.concept, interactions: real.interactions } : fromStory || (top && PLAYS[top.key]);
+  const proofLine = proof && !caseStory ? ` Proof point: ${proof.company}, a Cognition customer${proof.industries.includes(industry && industry.key) ? ` in ${industry.label}` : ''}: "${proof.headline}".` : '';
   const lands = wow.reasons.length ? ` Why this lands: the source shows ${wow.reasons.join(', ')}, so the demo maps directly to work ${account.name} has said it is doing.` : '';
   if (play) {
     return {
       title: shorten(`${account.name}: ${topic}`, 120),
-      concept: shorten(`${play.concept(account.name, topic)}${lands} It is grounded in a public signal (${label}${cand.source_date ? `, ${cand.source_date}` : ''})${summary ? `: ${summary}` : '.'} `
+      concept: shorten(`${play.concept(account.name, topic)}${lands}${proofLine} It is grounded in a public signal (${label}${cand.source_date ? `, ${cand.source_date}` : ''})${summary ? `: ${summary}` : '.'} `
         + 'Everything runs on synthetic, seeded data and can be walked through in under five minutes.', 1500),
       interactions: play.interactions,
     };

@@ -2,6 +2,15 @@
 const { fetchText, fetchJson } = require('../net');
 const X = require('./extract');
 const O = require('./opportunity');
+const I = require('./industry');
+const config = require('../config');
+// SEC rejects user agents without a plain "name contact" form.
+const secOpts = (o = {}) => ({ ...o, headers: { 'user-agent': `Prospector5000 ${config.contactEmail || 'research@prospector5000.onrender.com'}` } });
+// Whole-word, case-sensitive company mention (so "Gap" does not match "air gap").
+function namedIn(text, name) {
+  const core = String(name || '').replace(/,?\s+(inc|corp|corporation|ltd|llc|plc|co|group|holdings)\.?$/i, '').trim();
+  return !!core && new RegExp(`(^|[^\\w])${core.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])`).test(String(text || ''));
+}
 
 async function mapLimit(items, limit, fn) {
   const out = [];
@@ -301,7 +310,7 @@ async function nvdCves(account, log) {
 const SEC_TITLE = /\b(breach\w*|vulnerabilit\w*|exploit\w*|security|incident|post-?mortem|hack\w*|leak\w*|disclos\w*|cve-\d{4}-\d+|attack\w*|compromis\w*|ransomware|exposed)\b/i;
 function pickSecurityHits(hits, account) {
   const seen = new Set();
-  return hits.filter((h) => h.url && h.title && mentions(h.title, account.name) && SEC_TITLE.test(h.title) && !/^(ask|tell) hn/i.test(h.title)
+  return hits.filter((h) => h.url && h.title && namedIn(h.title, account.name) && SEC_TITLE.test(h.title) && !/^(ask|tell) hn/i.test(h.title)
     && !seen.has(h.url) && seen.add(h.url))
     .sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 3);
 }
@@ -315,7 +324,7 @@ async function securityStudies(account, log) {
   const out = (await mapLimit(picks, 3, async (h) => {
     try {
       const s = await pageSource(h.url, { type: 'study', title: h.title, date: h.created_at });
-      return mentions(s.text, account.name) ? s : null;
+      return namedIn(s.text, account.name) ? s : null;
     } catch { return null; }
   })).filter(Boolean);
   log(`Security write-ups: ${out.length} published study/incident page(s) fetched.`);
@@ -352,7 +361,7 @@ async function cisaKev(account, log) {
 async function secFilings(account, log) {
   if (!account.cik) { log('SEC filings: no SEC CIK on record for this company (likely private).'); return []; }
   const cik = String(account.cik).replace(/\D/g, '').padStart(10, '0');
-  const sub = await fetchJson(`https://data.sec.gov/submissions/CIK${cik}.json`, { maxBytes: 5000000 });
+  const sub = await fetchJson(`https://data.sec.gov/submissions/CIK${cik}.json`, secOpts({ maxBytes: 5000000 }));
   const r = sub.filings && sub.filings.recent;
   if (!r) return [];
   const wanted = ['10-K', '20-F', 'S-1', 'F-1'];
@@ -362,17 +371,42 @@ async function secFilings(account, log) {
       picks.push({ form: r.form[i], date: r.filingDate[i], acc: r.accessionNumber[i].replace(/-/g, ''), doc: r.primaryDocument[i] });
     }
   }
-  const out = await mapLimit(picks, 2, async (p) => {
+  // The annual report to shareholders (ARS) opens with the CEO's letter: strategy in plain words.
+  const ars = r.form.findIndex((f, i) => f === 'ARS' && /\.html?$/i.test(r.primaryDocument[i]));
+  if (ars >= 0) picks.push({ form: 'ARS', date: r.filingDate[ars], acc: r.accessionNumber[ars].replace(/-/g, ''), doc: r.primaryDocument[ars] });
+  const out = await mapLimit(picks, 3, async (p) => {
     const url = `https://www.sec.gov/Archives/edgar/data/${parseInt(cik, 10)}/${p.acc}/${p.doc}`;
-    const res = await fetchText(url, { maxBytes: 8000000, timeoutMs: 30000 });
+    const res = await fetchText(url, secOpts({ maxBytes: 8000000, timeoutMs: 30000 }));
     let text = X.htmlToText(res.text);
+    if (p.form === 'ARS') {
+      return { url, title: `${sub.name || account.name} annual report and shareholder letter (filed ${p.date})`, date: p.date, type: 'filing', text: text.slice(0, (() => { const cut = text.search(/UNITED STATES\s+SECURITIES AND EXCHANGE COMMISSION/i); return cut > 2000 ? cut : 80000; })()) };
+    }
     const hits = [...text.matchAll(/item\s*1\.?\s*business/gi)];
     const start = hits.length > 1 ? hits[1].index : hits.length ? hits[0].index : 0;
     text = text.slice(start, start + 60000);
     return { url, title: `${sub.name || account.name} ${p.form} filed ${p.date}`, date: p.date, type: 'filing', text };
   });
-  log(`SEC filings: ${out.length} filing(s) fetched.`);
+  log(`SEC filings: ${out.length} filing(s) fetched${ars >= 0 ? ', including the annual report / shareholder letter' : ''}.`);
   return out;
 }
 
-module.exports = { pageSource, gdeltNews, hnLaunches, companyFeeds, jobBoards, securityStudies, pickSecurityHits, cisaKev, parseKev, nvdCves, parseNvd, staffingSummary, secFilings, parseFeed, mapLimit, onDomain, hostOf };
+/* ---------- Cognition customer stories from the same industry (proof points) ---------- */
+async function customerStories(account, log) {
+  let sic = null;
+  if (account.cik) {
+    try {
+      const sub = await fetchJson(`https://data.sec.gov/submissions/CIK${String(account.cik).replace(/\D/g, '').padStart(10, '0')}.json`, secOpts({ maxBytes: 5000000 }));
+      sic = sub.sic;
+    } catch { /* industry falls back to the description */ }
+  }
+  const industry = I.industryOf(account.description, sic);
+  if (!industry) { log('Customer stories: industry not recognized; none added.'); return []; }
+  const picks = I.storiesFor(industry).slice(0, 2);
+  const out = (await mapLimit(picks, 2, async (s) => {
+    try { return { ...(await pageSource(s.url, { type: 'case_study' })), url: s.url, title: s.headline }; } catch { return null; }
+  })).filter(Boolean);
+  log(`Customer stories: ${out.length} Cognition customer stor${out.length === 1 ? 'y' : 'ies'} from ${industry.label}.`);
+  return out;
+}
+
+module.exports = { namedIn, customerStories, pageSource, gdeltNews, hnLaunches, companyFeeds, jobBoards, securityStudies, pickSecurityHits, cisaKev, parseKev, nvdCves, parseNvd, staffingSummary, secFilings, parseFeed, mapLimit, onDomain, hostOf };
