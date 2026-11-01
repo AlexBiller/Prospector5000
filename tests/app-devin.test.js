@@ -99,6 +99,7 @@ test('connected build requires approval and ACU confirmation; key never leaks', 
     assert.strictEqual(live.status, 'building');
     assert.strictEqual(live.step, 'Deploying the demo to GitHub Pages');
     assert.ok(live.started_at);
+    assert.ok(live.last_checked);
     const livePage = (await c.get(`/accounts/${id}`)).text;
     assert.match(livePage, /data-elapsed-since="[^"]+"/);
     assert.match(livePage, /Deploying the demo to GitHub Pages/);
