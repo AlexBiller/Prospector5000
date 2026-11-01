@@ -2,6 +2,7 @@
 const { shorten, splitSentences, looksLikeInstructions } = require('./research/extract');
 const { TYPE_LABEL } = require('./research/candidates');
 const O = require('./research/opportunity');
+const W = require('./research/wow');
 
 const DEMO_LABEL = 'Unofficial demo built with Devin - synthetic data';
 const MAX_INTERACTIONS = 5;
@@ -40,6 +41,19 @@ function validateProposal(p) {
 }
 
 // Demo shapes that show Devin doing the kind of work the evidence points to.
+// The demo does a real slice of the work on a realistic synthetic sample, rather than mocking a dashboard about it.
+const REAL_MIGRATION = (n, from, to) => ({
+  concept: `Devin performs a real slice of the migration ${n} has described, from ${from} to ${to}: it first builds a small, realistic ${from} sample modeled on a typical ${n} feature with synthetic data, then ports it to ${to}, with a parity test suite proving both versions behave the same and a side-by-side viewer of the old and new code.`,
+  interactions: [`Run the original ${from} sample`, `Run the ${to} port side by side and compare behavior`,
+    'Run the parity test suite and see both versions pass the same tests', 'Browse the file-by-file diff with a note on each translation decision',
+    'See the migration log with how long Devin took per module'],
+});
+const REAL_SECURITY = (n, t) => ({
+  concept: `Devin works the security issue behind "${t}" end to end for ${n}: it builds a small synthetic service modeled on a typical ${n} feature that contains the same class of flaw, writes a regression test that safely demonstrates it, ships the fix, and then finds and fixes every other instance of the pattern in the sample codebase.`,
+  interactions: ['Read a plain-language summary of the published issue and the affected code pattern', 'Run the regression test against the vulnerable version and see it fail',
+    'Apply Devin\'s fix and see the test pass', 'Review every other instance Devin found and fixed, as diffs', 'Export a remediation report for the security team'],
+});
+
 const PLAYS = {
   migration: {
     concept: (n, t) => `A small web app that shows how Devin would run "${t}" for ${n}: a seeded inventory of legacy modules, a migration plan split into parallel tasks, and a tracker of reviewed pull requests moving code to the target stack.`,
@@ -80,11 +94,16 @@ function defaultProposal(account, cand) {
   const topic = shorten(clean(cand.title) || 'their current priorities', 90);
   const summary = clean(cand.summary);
   const top = O.forCandidate({ ...cand, title: clean(cand.title), summary, excerpt: clean(cand.excerpt) })[0];
-  const play = top && PLAYS[top.key];
+  const wow = W.projectSignal([clean(cand.title), summary, clean(cand.excerpt)].join('. '), { securityEvents: cand.source_type !== 'job' });
+  const securityLed = cand.source_type === 'study' || cand.source_type === 'security';
+  const real = wow.migration ? REAL_MIGRATION(account.name, wow.migration.from, wow.migration.to)
+    : securityLed ? REAL_SECURITY(account.name, topic) : null;
+  const play = real ? { concept: () => real.concept, interactions: real.interactions } : top && PLAYS[top.key];
+  const lands = wow.reasons.length ? ` Why this lands: the source shows ${wow.reasons.join(', ')}, so the demo maps directly to work ${account.name} has said it is doing.` : '';
   if (play) {
     return {
       title: shorten(`${account.name}: ${topic}`, 120),
-      concept: shorten(`${play.concept(account.name, topic)} It is grounded in a public signal (${label}${cand.source_date ? `, ${cand.source_date}` : ''})${summary ? `: ${summary}` : '.'} `
+      concept: shorten(`${play.concept(account.name, topic)}${lands} It is grounded in a public signal (${label}${cand.source_date ? `, ${cand.source_date}` : ''})${summary ? `: ${summary}` : '.'} `
         + 'Everything runs on synthetic, seeded data and can be walked through in under five minutes.', 1500),
       interactions: play.interactions,
     };

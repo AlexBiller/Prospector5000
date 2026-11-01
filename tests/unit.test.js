@@ -96,8 +96,8 @@ test('opportunity categories: migrations, security, AI and capacity are detected
 test('default proposal follows the opportunity category', () => {
   const { defaultProposal } = require('../src/brief');
   const p = defaultProposal({ name: 'Acme' }, { title: 'Patch backlog for CVE-2026-1234', summary: 'A critical vulnerability needs remediation across services.', excerpt: '', source_type: 'security', source_date: '2026-10-01' });
-  assert.match(p.concept, /remediate/);
-  assert.ok(p.interactions.some((i) => /vulnerability/i.test(i)));
+  assert.match(p.concept, /regression test/);
+  assert.ok(p.interactions.some((i) => /vulnerab/i.test(i)));
 });
 
 test('NVD parsing keeps only CVEs for the company as vendor', () => {
@@ -138,7 +138,7 @@ test('research reports per-source progress, and the account page shows a progres
   const R = require('../src/research');
   const saved = { provider: config.research.provider, fns: { ...S } };
   config.research.provider = 'public';
-  const names = ['gdeltNews', 'hnLaunches', 'companyFeeds', 'jobBoards', 'nvdCves', 'secFilings'];
+  const names = ['gdeltNews', 'hnLaunches', 'companyFeeds', 'jobBoards', 'securityStudies', 'cisaKev', 'nvdCves', 'secFilings'];
   names.forEach((n, i) => { S[n] = async () => { await new Promise((r) => setTimeout(r, 5 * (i + 1))); if (n === 'gdeltNews') throw new Error('rate limited'); return []; }; });
   const seen = [];
   try {
@@ -147,8 +147,8 @@ test('research reports per-source progress, and the account page shows a progres
     config.research.provider = saved.provider;
     Object.assign(S, saved.fns);
   }
-  assert.deepStrictEqual(seen.map((p) => p.done), [0, 1, 2, 3, 4, 5, 6, 6]);
-  assert.ok(seen.every((p) => p.total === 7));
+  assert.deepStrictEqual(seen.map((p) => p.done), [0, 1, 2, 3, 4, 5, 6, 7, 8, 8]);
+  assert.ok(seen.every((p) => p.total === 9));
   assert.match(seen[0].step, /^Searching news, Hacker News launches/);
   assert.match(seen.at(-1).step, /^Analyzing 0 sources/);
   const V = require('../src/views');
@@ -157,6 +157,56 @@ test('research reports per-source progress, and the account page shows a progres
   assert.match(page, /<progress max="7" value="2"/);
   assert.match(page, /data-research-progress="\/api\/accounts\/3\/research"/);
   assert.doesNotMatch(page, /refreshes automatically/);
+});
+
+test('wow ranking: a named large migration and a security write-up beat generic roles and hiring counts', () => {
+  const W = require('../src/research/wow');
+  const coinbase = 'This team is replacing the existing React Native app with native Swift and Kotlin builds, using AI-driven agentic workflows to rebuild every core surface for millions of customers.';
+  const sig = W.projectSignal(coinbase);
+  assert.deepStrictEqual(sig.migration, { from: 'React Native', to: 'Swift and Kotlin' });
+  assert.ok(sig.reasons.includes('large scale'));
+  assert.deepStrictEqual(W.migrationPair('We are moving from Oracle to PostgreSQL across all services.'), { from: 'Oracle', to: 'PostgreSQL' });
+  assert.strictEqual(W.migrationPair('We want to move the business forward to new markets.'), null);
+
+  const C = require('../src/research/candidates');
+  const recent = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+  const pad = ' You will collaborate with partners across the company and help build our platform with modern tooling every day.';
+  const mk = (type, title, text) => C.fromSource({ type, title, url: `https://x.test/${encodeURIComponent(title)}`, date: recent, text: text + pad }, 'Acme');
+  const ranked = C.rank([
+    mk('job', 'Product Manager', 'Acme is hiring a product manager to own the roadmap for our AI platform and drive growth with customers.'),
+    mk('job', 'Acme is hiring 80 engineers', 'Acme lists 120 open roles on its public job board, 80 of them engineering roles at the AI platform.'),
+    mk('job', 'Staff Engineer, Native Mobile', `At Acme, ${coinbase}`),
+    mk('study', 'Acme breach: how attackers abused an exposed API', 'Researchers published a post-mortem of the Acme breach in which attackers exploited an exposed API to access customer records.'),
+  ].filter(Boolean));
+  assert.deepStrictEqual(ranked.slice(0, 2).map((c) => c.title).sort(), ['Acme breach: how attackers abused an exposed API', 'Staff Engineer, Native Mobile'].sort());
+  assert.match(ranked.find((c) => c.title.startsWith('Staff')).relevance, /Why it could wow: a named migration \(React Native to Swift and Kotlin\)/);
+
+  const { defaultProposal } = require('../src/brief');
+  const mig = defaultProposal({ name: 'Acme' }, ranked.find((c) => c.title.startsWith('Staff')));
+  assert.match(mig.concept, /real slice of the migration Acme has described, from React Native to Swift and Kotlin/);
+  assert.match(mig.concept, /Why this lands/);
+  assert.ok(mig.interactions.some((i) => /parity test/.test(i)));
+  const sec = defaultProposal({ name: 'Acme' }, ranked.find((c) => c.source_type === 'study'));
+  assert.match(sec.concept, /regression test that safely demonstrates it/);
+});
+
+test('security write-ups and CISA KEV parsing keep only this company', () => {
+  const S = require('../src/research/sources');
+  const hits = S.pickSecurityHits([
+    { title: 'Acme data breach exposed 2M records', url: 'https://a.test/1', points: 50 },
+    { title: 'Ask HN: Is Acme security any good?', url: 'https://a.test/2', points: 90 },
+    { title: 'Acme launches new dashboard', url: 'https://a.test/3', points: 99 },
+    { title: 'Other Corp breach', url: 'https://a.test/4', points: 99 },
+  ], { name: 'Acme' });
+  assert.deepStrictEqual(hits.map((h) => h.url), ['https://a.test/1']);
+  const today = new Date().toISOString().slice(0, 10);
+  const kev = S.parseKev({ vulnerabilities: [
+    { cveID: 'CVE-2026-1111', vendorProject: 'Acme', product: 'Gateway', vulnerabilityName: 'Acme Gateway Auth Bypass', shortDescription: 'Auth bypass.', requiredAction: 'Apply updates.', dateAdded: today, knownRansomwareCampaignUse: 'Known' },
+    { cveID: 'CVE-2020-2222', vendorProject: 'Acme', product: 'Old', dateAdded: '2020-01-01' },
+    { cveID: 'CVE-2026-3333', vendorProject: 'Other', product: 'X', dateAdded: today },
+  ] }, { name: 'Acme Inc.', domain: 'acme.com' });
+  assert.strictEqual(kev.length, 1);
+  assert.match(kev[0].text, /exploited in the wild.*ransomware/);
 });
 
 test('build step text and elapsed timer formatting', () => {

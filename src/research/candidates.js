@@ -1,19 +1,24 @@
 'use strict';
 const X = require('./extract');
 const O = require('./opportunity');
+const W = require('./wow');
 
 const TYPE_LABEL = {
   news: 'News article', press: 'Press release', blog: 'Company blog post', launch: 'Product launch',
-  job: 'Open job posting', filing: 'SEC filing', security: 'Security advisory (CVE)', web: 'Web page', manual: 'Your finding',
+  job: 'Open job posting', filing: 'SEC filing', security: 'Security advisory (CVE)', study: 'Published security study or incident', web: 'Web page', manual: 'Your finding',
 };
-const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, security: 1.1, news: 0.8, web: 0.6, manual: 1.2 };
+const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, security: 1.1, study: 1.3, news: 0.8, web: 0.6, manual: 1.2 };
+// Roles and summaries that rarely point to a specific project.
+const NON_ENG_JOB = /\b(product manager|program manager|partnerships?|business development|activation|account (?:executive|manager)|sales|marketing|recruit\w*|designer|customer success|operations manager|counsel|finance)\b/i;
+const HIRING_SUMMARY = /\bis hiring \d+ engineers\b/i;
 
-function relevanceText(src, kws) {
+function relevanceText(src, kws, wowText) {
   const when = src.date ? ` (${src.date})` : '';
   let base;
   switch (src.type) {
     case 'job': base = `Open role${when}: companies hire where they are investing, so a demo of a workflow this team would own is timely.`; break;
     case 'security': base = `Published vulnerability affecting this company's products${when}. Remediation work like this is a direct fit for Devin.`; break;
+    case 'study': base = `Published write-up of a security event involving this company${when}. A demo that safely reproduces and fixes the same class of flaw is concrete and memorable.`; break;
     case 'filing': base = `Stated in an SEC filing${when}. Filings describe strategy the company has committed to publicly.`; break;
     case 'blog': base = `Published on the company's own site${when}, so it describes work they chose to highlight.`; break;
     case 'press': base = `Announcement from the company${when}. A demo that extends it connects to something they are actively promoting.`; break;
@@ -22,6 +27,8 @@ function relevanceText(src, kws) {
     case 'manual': base = 'Added by you.'; break;
     default: base = `Public web page${when}.`;
   }
+  const wow = W.projectSignal(wowText || '', { securityEvents: src.type !== 'job' });
+  if (wow.reasons.length) base += ` Why it could wow: ${wow.reasons.join(', ')}.`;
   if (kws.length) base += ` Signals: ${kws.join(', ')}.`;
   if (X.isStale(src.date)) base += ' Older than 12 months: treat as a lead, not proof of current direction.';
   return base;
@@ -33,11 +40,20 @@ function opportunityBoost(text, type) {
   return s ? Math.min(2, s * 0.35) : -0.8;
 }
 
-function scoreFor(src, bestSentenceScore, injected, oppText) {
+// Specific, large projects and published security events outrank generic signals.
+function wowAdjust(src, wowText) {
+  const title = String(src.title || '');
+  let adj = Math.min(2.5, W.projectSignal(wowText, { securityEvents: src.type !== 'job' }).score);
+  if (src.type === 'job' && HIRING_SUMMARY.test(title)) adj -= 1;
+  else if (src.type === 'job' && NON_ENG_JOB.test(title)) adj -= 1.5;
+  return adj;
+}
+
+function scoreFor(src, bestSentenceScore, injected, oppText, wowText) {
   const age = X.ageDays(src.date);
   const recency = age === null ? 0.3 : age <= 90 ? 1 : age <= 180 ? 0.8 : age <= 365 ? 0.5 : -1;
   return (TYPE_WEIGHT[src.type] || 0.6) + recency + Math.min(Math.max(bestSentenceScore, 0), 4) * 0.3
-    + opportunityBoost(oppText, src.type) - (injected ? 2 : 0);
+    + opportunityBoost(oppText, src.type) + wowAdjust(src, wowText || oppText) - (injected ? 2 : 0);
 }
 
 function flagsFor(src, injected, extra = {}) {
@@ -60,13 +76,16 @@ function fromSource(src, companyName) {
   const best = [...scored].sort((a, b) => b.score - a.score || a.i - b.i);
   if (best[0].score <= 0 && src.type !== 'job' && src.type !== 'manual') return null;
   const summary = X.shorten(best.slice(0, 3).sort((a, b) => a.i - b.i).slice(0, 2).map((x) => x.s).join(' '), 360);
-  return finalize(src, { excerpt: best[0].s, summary, bestScore: best[0].score, injected, usableText: usable.join(' ') }, companyName);
+  const keyText = best.slice(0, 3).map((x) => x.s).join(' ');
+  return finalize(src, { excerpt: best[0].s, summary, bestScore: best[0].score, injected, usableText: usable.join(' '), keyText }, companyName);
 }
 
-function finalize(src, { title, summary, excerpt, bestScore = 1, injected = false, usableText = '', relevance, origin, extraFlags }, companyName) {
+function finalize(src, { title, summary, excerpt, bestScore = 1, injected = false, usableText = '', keyText, relevance, origin, extraFlags }, companyName) {
   let t = title || X.cleanTitle(src.title);
   if (!t || X.looksLikeInstructions(t)) t = X.shorten(excerpt, 90);
   const kws = [...new Set(X.matchedKeywords(usableText || `${summary} ${excerpt}`))].slice(0, 5);
+  // Only the strongest sentences count, so boilerplate on long pages (job ads, footers) cannot inflate the signal.
+  const wowText = `${t}. ${keyText || `${summary} ${excerpt}`}`;
   return {
     title: X.shorten(t, 140),
     summary: X.shorten(summary, 400),
@@ -75,9 +94,9 @@ function finalize(src, { title, summary, excerpt, bestScore = 1, injected = fals
     source_title: src.title ? X.shorten(X.looksLikeInstructions(src.title) ? '(title withheld: instruction-like text)' : src.title, 200) : null,
     source_date: src.date || null,
     source_type: src.type,
-    relevance: relevance || relevanceText(src, kws),
+    relevance: relevance || relevanceText(src, kws, wowText),
     origin: origin || 'fetched',
-    score: Math.round(scoreFor(src, bestScore, injected, `${t} ${summary} ${excerpt}`) * 100) / 100,
+    score: Math.round(scoreFor(src, bestScore, injected, `${t} ${summary} ${excerpt}`, wowText) * 100) / 100,
     flags: flagsFor(src, injected, { excerpt_verified: src.text ? X.excerptIsVerbatim(excerpt, src.text) : false, ...(extraFlags || {}) }),
     recommended: false,
   };
