@@ -17,9 +17,9 @@ function providerStatus() {
 async function gather(account, log, progress = () => {}) {
   const status = providerStatus();
   const tasks = status.name === 'tavily'
-    ? [['web search', tavilySources], ['job boards', S.jobBoards], ['security write-ups', S.securityStudies], ['known exploited vulnerabilities', S.cisaKev], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]]
+    ? [['web search', tavilySources], ['job boards', S.jobBoards], ['security write-ups', S.securityStudies], ['known exploited vulnerabilities', S.cisaKev], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings], ['Cognition customer stories', S.customerStories]]
     : [['news', S.gdeltNews], ['Hacker News launches', S.hnLaunches], ['company blog and newsroom', S.companyFeeds],
-      ['job boards', S.jobBoards], ['security write-ups', S.securityStudies], ['known exploited vulnerabilities', S.cisaKev], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]];
+      ['job boards', S.jobBoards], ['security write-ups', S.securityStudies], ['known exploited vulnerabilities', S.cisaKev], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings], ['Cognition customer stories', S.customerStories]];
   const total = tasks.length + 1;
   const pending = tasks.map(([label]) => label);
   const report = () => progress({ done: total - 1 - pending.length, total, step: pending.length ? `Searching ${pending.join(', ')}` : 'Analyzing sources' });

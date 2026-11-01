@@ -5,9 +5,9 @@ const W = require('./wow');
 
 const TYPE_LABEL = {
   news: 'News article', press: 'Press release', blog: 'Company blog post', launch: 'Product launch',
-  job: 'Open job posting', filing: 'SEC filing', security: 'Security advisory (CVE)', study: 'Published security study or incident', web: 'Web page', manual: 'Your finding',
+  job: 'Open job posting', filing: 'SEC filing', security: 'Security advisory (CVE)', study: 'Published security study or incident', case_study: 'Cognition customer story (industry example)', web: 'Web page', manual: 'Your finding',
 };
-const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, security: 1.1, study: 1.3, news: 0.8, web: 0.6, manual: 1.2 };
+const TYPE_WEIGHT = { press: 1.1, launch: 1.1, blog: 1.0, filing: 0.9, job: 0.7, security: 1.1, study: 1.3, case_study: 0.2, news: 0.8, web: 0.6, manual: 1.2 };
 // Roles and summaries that rarely point to a specific project.
 const NON_ENG_JOB = /\b(product manager|program manager|partnerships?|business development|activation|account (?:executive|manager)|sales|marketing|recruit\w*|designer|customer success|operations manager|counsel|finance)\b/i;
 const HIRING_SUMMARY = /\bis hiring \d+ engineers\b/i;
@@ -18,6 +18,7 @@ function relevanceText(src, kws, wowText) {
   switch (src.type) {
     case 'job': base = `Open role${when}: companies hire where they are investing, so a demo of a workflow this team would own is timely.`; break;
     case 'security': base = `Published vulnerability affecting this company's products${when}. Remediation work like this is a direct fit for Devin.`; break;
+    case 'case_study': base = 'Industry example, not evidence about this company: a Cognition customer in the same industry. Use it as a proof point next to the company\'s own priorities.'; break;
     case 'study': base = `Published write-up of a security event involving this company${when}. A demo that safely reproduces and fixes the same class of flaw is concrete and memorable.`; break;
     case 'filing': base = `Stated in an SEC filing${when}. Filings describe strategy the company has committed to publicly.`; break;
     case 'blog': base = `Published on the company's own site${when}, so it describes work they chose to highlight.`; break;
@@ -115,13 +116,14 @@ function rank(cands) {
   const seenType = {};
   out.forEach((c) => { c._adj = c.score - 0.45 * (seenType[c.source_type] || 0); seenType[c.source_type] = (seenType[c.source_type] || 0) + 1; });
   out.sort((a, b) => b._adj - a._adj).forEach((c) => { delete c._adj; });
-  const rec = out.find((c) => !c.flags.stale && !c.flags.embedded_instructions && (c.flags.excerpt_verified || c.origin !== 'fetched'));
+  const rec = out.find((c) => c.source_type !== 'case_study' && !c.flags.stale && !c.flags.embedded_instructions && (c.flags.excerpt_verified || c.origin !== 'fetched'));
   if (rec) rec.recommended = true;
   return out;
 }
 
 function evidenceMessage(cands) {
   if (!cands.length) return 'No usable evidence was found. Add findings manually, or try again later.';
+  if (cands.every((c) => c.source_type === 'case_study')) return 'No company-specific evidence was found, so only Cognition customer stories from the same industry are shown. Add your own findings to ground the demo in this company.';
   const current = cands.filter((c) => !c.flags.stale && !c.flags.date_unknown).length;
   const parts = [`${cands.length} candidate${cands.length === 1 ? '' : 's'} from ${new Set(cands.map((c) => c.source_type)).size} source type(s); ${current} dated within the last 12 months.`];
   if (current < 3) parts.push('Evidence is thin: weigh the recommendation accordingly and consider adding your own findings.');
