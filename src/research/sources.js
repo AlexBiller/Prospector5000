@@ -297,6 +297,57 @@ async function nvdCves(account, log) {
   return all.slice(0, 3);
 }
 
+/* ---------- security write-ups: published studies, incident reports and disclosures (HN Algolia) ---------- */
+const SEC_TITLE = /\b(breach\w*|vulnerabilit\w*|exploit\w*|security|incident|post-?mortem|hack\w*|leak\w*|disclos\w*|cve-\d{4}-\d+|attack\w*|compromis\w*|ransomware|exposed)\b/i;
+function pickSecurityHits(hits, account) {
+  const seen = new Set();
+  return hits.filter((h) => h.url && h.title && mentions(h.title, account.name) && SEC_TITLE.test(h.title) && !/^(ask|tell) hn/i.test(h.title)
+    && !seen.has(h.url) && seen.add(h.url))
+    .sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 3);
+}
+async function securityStudies(account, log) {
+  if (!account.name) return [];
+  const since = Math.floor(Date.now() / 1000) - 3 * 365 * 86400;
+  const results = await Promise.all(['security', 'breach', 'vulnerability', 'incident'].map((w) => fetchJson(
+    `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(`${account.name} ${w}`)}&tags=story&hitsPerPage=20&numericFilters=created_at_i>${since}`,
+  ).catch(() => null)));
+  const picks = pickSecurityHits(results.flatMap((d) => (d && d.hits) || []), account);
+  const out = (await mapLimit(picks, 3, async (h) => {
+    try {
+      const s = await pageSource(h.url, { type: 'study', title: h.title, date: h.created_at });
+      return mentions(s.text, account.name) ? s : null;
+    } catch { return null; }
+  })).filter(Boolean);
+  log(`Security write-ups: ${out.length} published study/incident page(s) fetched.`);
+  return out;
+}
+
+/* ---------- CISA Known Exploited Vulnerabilities for the company's products ---------- */
+function parseKev(data, account) {
+  const name = String(account.name || '').toLowerCase().replace(/,?\s+(inc|corp|corporation|ltd|llc|plc|co)\.?$/, '').trim();
+  const root = (account.domain || '').split('.')[0].toLowerCase();
+  const cutoff = new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10);
+  return (data.vulnerabilities || []).filter((v) => {
+    const vendor = String(v.vendorProject || '').toLowerCase();
+    return (vendor === name || (root && vendor === root)) && String(v.dateAdded || '') >= cutoff;
+  }).sort((a, b) => String(b.dateAdded).localeCompare(String(a.dateAdded))).map((v) => ({
+    url: `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(v.cveID)}`,
+    title: `${v.cveID}: actively exploited vulnerability in ${v.vendorProject} ${v.product}`,
+    date: X.toIsoDate(v.dateAdded), type: 'security',
+    text: `${v.cveID} is listed in CISA's Known Exploited Vulnerabilities catalog: it has been exploited in the wild. ${v.vulnerabilityName}. `
+      + `${String(v.shortDescription || '').replace(/\s+/g, ' ')} Required action: ${v.requiredAction}`
+      + `${v.knownRansomwareCampaignUse === 'Known' ? ' It is known to be used in ransomware campaigns.' : ''}`,
+  }));
+}
+async function cisaKev(account, log) {
+  if (!account.name) return [];
+  let data;
+  try { data = await fetchJson('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json', { maxBytes: 12000000, timeoutMs: 20000 }); } catch (e) { log(`Known exploited vulnerabilities (CISA) unavailable right now: ${e.message}`); return []; }
+  const all = parseKev(data, account);
+  log(all.length ? `Known exploited vulnerabilities: ${all.length} for ${account.name} products in the last 2 years; using ${Math.min(all.length, 2)}.` : 'Known exploited vulnerabilities: none for this company in the last 2 years.');
+  return all.slice(0, 2);
+}
+
 /* ---------- SEC EDGAR filings (10-K / 20-F / S-1 / F-1) ---------- */
 async function secFilings(account, log) {
   if (!account.cik) { log('SEC filings: no SEC CIK on record for this company (likely private).'); return []; }
@@ -324,4 +375,4 @@ async function secFilings(account, log) {
   return out;
 }
 
-module.exports = { pageSource, gdeltNews, hnLaunches, companyFeeds, jobBoards, nvdCves, parseNvd, staffingSummary, secFilings, parseFeed, mapLimit, onDomain, hostOf };
+module.exports = { pageSource, gdeltNews, hnLaunches, companyFeeds, jobBoards, securityStudies, pickSecurityHits, cisaKev, parseKev, nvdCves, parseNvd, staffingSummary, secFilings, parseFeed, mapLimit, onDomain, hostOf };

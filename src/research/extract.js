@@ -110,7 +110,7 @@ function matchedKeywords(s) {
 }
 
 function sentenceScore(s, companyName) {
-  let score = matchedKeywords(s).length + 1.5 * sentenceSignal(s);
+  let score = matchedKeywords(s).length + 1.5 * sentenceSignal(s) + require('./wow').projectSignal(s).score;
   if (companyName && s.toLowerCase().includes(companyName.toLowerCase())) score += 1.5;
   if (s.length < 60) score -= 1;
   return score;

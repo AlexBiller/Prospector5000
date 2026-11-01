@@ -8,8 +8,8 @@ const { tavilySources } = require('./tavily');
 
 function providerStatus() {
   const p = config.research.provider;
-  if (p === 'public') return { available: true, name: 'public', label: 'Public sources (GDELT news, company feeds, HN launches, job boards, NVD CVEs, SEC EDGAR)' };
-  if (config.research.tavilyKey && (!p || p === 'tavily')) return { available: true, name: 'tavily', label: 'Tavily search + public job boards, NVD CVEs and SEC EDGAR' };
+  if (p === 'public') return { available: true, name: 'public', label: 'Public sources (GDELT news, company feeds, HN launches, job boards, security write-ups, CISA KEV, NVD CVEs, SEC EDGAR)' };
+  if (config.research.tavilyKey && (!p || p === 'tavily')) return { available: true, name: 'tavily', label: 'Tavily search + public job boards, security write-ups, CISA KEV, NVD CVEs and SEC EDGAR' };
   return { available: false, name: null, label: 'Not configured' };
 }
 
@@ -17,9 +17,9 @@ function providerStatus() {
 async function gather(account, log, progress = () => {}) {
   const status = providerStatus();
   const tasks = status.name === 'tavily'
-    ? [['web search', tavilySources], ['job boards', S.jobBoards], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]]
+    ? [['web search', tavilySources], ['job boards', S.jobBoards], ['security write-ups', S.securityStudies], ['known exploited vulnerabilities', S.cisaKev], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]]
     : [['news', S.gdeltNews], ['Hacker News launches', S.hnLaunches], ['company blog and newsroom', S.companyFeeds],
-      ['job boards', S.jobBoards], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]];
+      ['job boards', S.jobBoards], ['security write-ups', S.securityStudies], ['known exploited vulnerabilities', S.cisaKev], ['security advisories', S.nvdCves], ['SEC filings', S.secFilings]];
   const total = tasks.length + 1;
   const pending = tasks.map(([label]) => label);
   const report = () => progress({ done: total - 1 - pending.length, total, step: pending.length ? `Searching ${pending.join(', ')}` : 'Analyzing sources' });
